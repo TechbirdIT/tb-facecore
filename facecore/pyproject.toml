@@ -40,6 +40,9 @@ packages = ["facecore"]
 [tool.setuptools.package-dir]
 "" = "src"
 
+[tool.setuptools.package-data]
+facecore = ["py.typed"]
+
 [tool.black]
 line-length = 88
 target-version = ["py311"]

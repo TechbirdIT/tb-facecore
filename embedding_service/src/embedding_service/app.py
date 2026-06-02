@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import secrets
+
 import cv2
 import numpy as np
 from facecore import MODEL_VERSION, FaceAnalyzer
@@ -45,7 +47,11 @@ async def embed(
     settings: Settings = Depends(get_settings),
     analyzer: FaceAnalyzer = Depends(get_analyzer),
 ) -> EmbeddingResponse:
-    if settings.secret is not None and x_secret != settings.secret:
+    # Constant-time comparison to avoid leaking the secret via timing.
+    # secret is None = auth disabled (v1 localhost-only; prod sets the env var).
+    if settings.secret is not None and not secrets.compare_digest(
+        x_secret or "", settings.secret
+    ):
         raise HTTPException(status_code=401, detail="invalid secret")
 
     raw = await file.read()

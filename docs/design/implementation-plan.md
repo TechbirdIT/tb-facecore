@@ -1716,6 +1716,7 @@ git add -A && git commit -q -m "feat: add role-gated get_face_data sync endpoint
 ```python
 # face_profiles_needing_reenrollment.py
 import frappe
+from frappe import _
 
 CURRENT_MODEL = "buffalo_l"
 
@@ -1724,9 +1725,9 @@ def execute(filters=None):
     filters = filters or {}
     target = filters.get("current_model") or CURRENT_MODEL
     columns = [
-        {"label": "Profile", "fieldname": "name", "fieldtype": "Link", "options": "Employee Face Profile", "width": 200},
-        {"label": "Employee", "fieldname": "employee", "fieldtype": "Link", "options": "Employee", "width": 200},
-        {"label": "Model Version", "fieldname": "model_version", "fieldtype": "Data", "width": 150},
+        {"label": _("Profile"), "fieldname": "name", "fieldtype": "Link", "options": "Employee Face Profile", "width": 200},
+        {"label": _("Employee"), "fieldname": "employee", "fieldtype": "Link", "options": "Employee", "width": 200},
+        {"label": _("Model Version"), "fieldname": "model_version", "fieldtype": "Data", "width": 150},
     ]
     rows = frappe.get_all(
         "Employee Face Profile",
@@ -2281,7 +2282,7 @@ from edge_client.frappe_client import FrappeClient
 
 
 def _client():
-    return FrappeClient("http://localhost:8000", "k", "s", site="site1.localhost")
+    return FrappeClient("http://localhost:8000", "k", "s")
 
 
 @patch("edge_client.frappe_client.requests.get")
@@ -2337,7 +2338,8 @@ _TIMEOUT = 10
 
 
 class FrappeClient:
-    def __init__(self, url: str, api_key: str, api_secret: str, site: str | None = None) -> None:
+    def __init__(self, url: str, api_key: str, api_secret: str) -> None:
+        # Token auth + full base URL identify the site; no `site` arg needed.
         self.base = url.rstrip("/")
         self.headers = {"Authorization": f"token {api_key}:{api_secret}"}
 
@@ -2705,7 +2707,7 @@ def main() -> None:
     from facecore import FaceAnalyzer
 
     analyzer = FaceAnalyzer(device="cpu", det_thresh=cfg.min_det_score)
-    client = FrappeClient(cfg.frappe_url, cfg.api_key, cfg.api_secret, site=cfg.site)
+    client = FrappeClient(cfg.frappe_url, cfg.api_key, cfg.api_secret)
     store = Store(cfg.db_path)
 
     logger.info("edge client starting: %s", cfg.edge_id)

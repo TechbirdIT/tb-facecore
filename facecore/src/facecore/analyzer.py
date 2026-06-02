@@ -1,6 +1,9 @@
 """FaceAnalyzer — main interface to facecore AI engine."""
 
 from typing import Any
+
+import numpy as np
+
 from facecore.models import DetectedFace
 
 
@@ -64,10 +67,14 @@ class FaceAnalyzer:
         """Compute cosine similarity between two embeddings.
 
         Args:
-            emb1, emb2: 512-dim embeddings (L2-normalized).
+            emb1, emb2: embeddings of equal length.
 
         Returns:
-            Cosine similarity in range [0.0, 1.0]. 1.0 = identical.
+            Cosine similarity in [-1.0, 1.0]. 1.0 = identical direction.
         """
-        # Stub — will be implemented in phase 1
-        raise NotImplementedError("FaceAnalyzer.cosine_similarity() — phase 1")
+        a = np.asarray(emb1, dtype=np.float32)
+        b = np.asarray(emb2, dtype=np.float32)
+        denom = float(np.linalg.norm(a) * np.linalg.norm(b))
+        if denom == 0.0:
+            return 0.0
+        return float(np.dot(a, b) / denom)

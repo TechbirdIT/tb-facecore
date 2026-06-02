@@ -1,8 +1,8 @@
-# Face Recognition Attendance for Frappe HRMS — Design Spec
+# Face Recognition Attendance for Frappe HRMS — Architecture
 
 **Date:** 2026-06-02
-**Status:** Approved (brainstorming)
-**Author:** Saurabh + Claude
+**Status:** Approved
+**Author:** Saurabh
 
 ---
 

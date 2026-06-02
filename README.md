@@ -41,7 +41,7 @@ Heavy AI is decoupled from the Frappe bench. The architecture supports single-ho
 
 ## Design Document
 
-See [`docs/superpowers/specs/2026-06-02-facerecog-hrms-design.md`](docs/superpowers/specs/2026-06-02-facerecog-hrms-design.md) for the full approved design spec. Includes:
+See [`docs/design/architecture.md`](docs/design/architecture.md) for the full design spec. Includes:
 - Locked architectural decisions
 - Component responsibilities & data flows
 - Frappe integration details (verified against installed v16)
@@ -153,7 +153,7 @@ All tests use fixtures (small committed images for same-person/different/spoofed
 
 ## Implementation Plan
 
-See [`docs/superpowers/plans/`](docs/superpowers/plans/) (created after brainstorming approval) for the detailed step-by-step build order, dependencies, and team assignments.
+See [`docs/design/`](docs/design/) for architecture and the detailed implementation plan.
 
 ## Version Compatibility
 

@@ -1,222 +1,179 @@
-# Face Recognition Attendance for Frappe HRMS
+# frappe-facecore
 
-Production-ready facial recognition biometric attendance system integrated into Frappe HRMS v16+.
+Facial recognition biometric attendance for Frappe HRMS v16. Employees check in by looking at a camera — no cards, no PINs. Attendance records are created automatically via Frappe's native shift and auto-attendance pipeline.
 
-Heavy AI is decoupled from the Frappe bench. The architecture supports single-host POC (v1 on your Mac) and scales to many edge locations reporting to a central Frappe server without refactoring.
+## How it works
 
-## Architecture
+HR uploads an employee photo in Frappe. The face is embedded as a 512-dimensional vector and stored against the employee record. Edge devices (kiosks, IP cameras) run a continuous recognition loop — when a face matches, a check-in is posted to Frappe via the native HRMS API. Frappe's shift engine derives IN/OUT and creates Attendance documents hourly.
 
 ```
-                    ┌─────────────────────────┐
-   HR uploads photo │   FRAPPE (site1.local)  │
-        ──────────► │  face_attendance app    │──┐ POST /embed (enrollment only)
-                    │  • Employee Face Profile │  │
-                    │  • sync API + settings  │  │
-                    └─────────────────────────┘  ▼
-                          ▲  ▲              ┌──────────────────────┐
-        checkin REST API  │  │ pull         │ embedding_service     │
-   (add_log_based_on_...) │  │ embeddings   │ FastAPI + facecore     │
-                          │  │              └──────────────────────┘
-                    ┌─────┴──┴───────────────┐
-                    │  EDGE CLIENT (venv)     │
-                    │  facecore in-process    │
-                    │  camera→live→embed→     │
-                    │  match(NumPy)→debounce  │
-                    └─────────────────────────┘
+                    ┌──────────────────────────┐
+   HR uploads photo │  FRAPPE + face_attendance│
+        ──────────► │  Employee Face Profile   │──► POST /embed
+                    │  Sync API + Settings     │
+                    └──────────────────────────┘
+                          ▲          ▲
+              check-in    │          │ pull embeddings
+              REST API    │          │
+                    ┌─────┴──────────┴───────┐    ┌──────────────────┐
+                    │  edge_client (venv)    │    │ embedding_service │
+                    │  camera → facecore     │    │ FastAPI           │
+                    │  → NumPy match         │    │ POST /embed       │
+                    │  → debounce → checkin  │    └──────────────────┘
+                    └────────────────────────┘
 ```
 
-- **`facecore`**: shared pure AI lib (InsightFace SCRFD + ArcFace + MiniFASNet liveness). No Frappe, no camera, no web. Typed, unit-testable.
-- **`embedding_service`**: FastAPI. `POST /embed` — image → 512-d embedding + scores. The decoupling boundary.
-- **`face_attendance`**: Frappe app (v16+). DocTypes, enrollment, sync API, settings. Calls embedding_service over HTTP. Zero InsightFace import.
-- **`edge_client`**: venv app. Camera → liveness → match (NumPy cosine) → debounce → post check-in. Offline-resilient SQLite queue.
+## Components
+
+| Package | Role |
+|---------|------|
+| `facecore` | Pure AI engine — SCRFD detection + ArcFace 512-d embedding + MiniFASNet liveness. No I/O, no Frappe, no web. |
+| `embedding_service` | FastAPI microservice wrapping facecore. Called by Frappe at enrollment. Keeps InsightFace out of the bench. |
+| `face_attendance` | Frappe app (v16). Employee Face Profile DocType, sync API, settings, role fixtures. |
+| `edge_client` | Edge device app. Camera → liveness gate → NumPy cosine match → debounce → post check-in. SQLite offline queue. |
 
 ## Stack
 
-- **Detect + embed**: InsightFace `buffalo_l` (SCRFD + ArcFace r50 → 512-d L2-normalized)
-- **Liveness**: Silent-Face MiniFASNet (passive, no interaction)
-- **Runtime**: ONNX Runtime. CPU on Mac; CUDA-capable on prod Linux
-- **Python**: AI stack on 3.11 (insightface/onnxruntime wheels). Frappe app on bench's 3.14.
-- **Capture**: OpenCV (Mac webcam now, RTSP/IP cameras later)
-- **Offline queue**: SQLite on edge (durable across restarts)
+| Concern | Choice |
+|---------|--------|
+| Detection + embedding | InsightFace `buffalo_l` (SCRFD + ArcFace r50) |
+| Liveness | Silent-Face MiniFASNet (passive, no user interaction) |
+| Matching | NumPy cosine similarity (sub-ms, no vector DB needed) |
+| Runtime | ONNX Runtime — CPU on dev, CUDA-switchable on prod |
+| Python | 3.11 for AI stack, 3.14 for Frappe bench |
+| Camera | OpenCV — webcam and RTSP/IP cameras |
+| Offline queue | SQLite — durable across edge restarts |
 
-## Design Document
-
-See [`docs/design/architecture.md`](docs/design/architecture.md) for the full design spec. Includes:
-- Locked architectural decisions
-- Component responsibilities & data flows
-- Frappe integration details (verified against installed v16)
-- Security & permissions model
-- Testing strategy
-- Build phases
-
-## Layout
+## Repository layout
 
 ```
-facerecog/
-├── facecore/                       # shared AI lib (src layout)
-│   ├── pyproject.toml
+frappe-facecore/
+├── facecore/                   # AI engine (shared lib)
 │   ├── src/facecore/
-│   ├── tests/
-│   └── README.md
-├── embedding_service/              # FastAPI app
-│   ├── pyproject.toml
+│   └── pyproject.toml
+├── embedding_service/          # FastAPI enrollment service
 │   ├── src/embedding_service/
-│   ├── tests/
-│   └── README.md
-├── edge_client/                    # edge device app
-│   ├── pyproject.toml
+│   └── pyproject.toml
+├── edge_client/                # Edge device client
 │   ├── src/edge_client/
-│   ├── tests/
 │   ├── config.example.yaml
-│   └── README.md
-├── docs/
-│   └── superpowers/specs/
-│       └── 2026-06-02-facerecog-hrms-design.md
-├── models/                         # downloaded AI models (.gitignored)
-├── .gitignore
-├── CLAUDE.md                       # project guidelines
-├── LICENSE
-└── README.md                       (this file)
+│   └── pyproject.toml
+├── docs/design/
+│   └── architecture.md         # Full architecture & design decisions
+└── models/                     # Downloaded AI models (gitignored, ~310MB)
 
-frappe-bench/apps/face_attendance/  # Frappe app (created via `bench new-app`)
-├── face_attendance/
-│   ├── hooks.py
-│   ├── fixtures/
-│   │   ├── role.json              # "Face Edge Device" role
-│   │   └── custom_docperm.json    # grants on Employee Checkin
-│   ├── modules/
-│   │   └── Face Attendance/
-│   │       ├── doctype/
-│   │       │   ├── Employee Face Profile/
-│   │       │   └── Face Recognition Settings/
-│   │       └── api.py             # get_face_data + helpers
-│   └── tests/
-└── README.md
+frappe-bench/apps/face_attendance/   # Frappe app (bench new-app)
+├── hooks.py                         # required_apps, fixtures, scheduler
+├── fixtures/                        # Role + Custom DocPerm exports
+└── face_attendance/
+    └── hr/doctype/
+        ├── employee_face_profile/
+        └── face_recognition_settings/
 ```
 
-## Getting Started (v1 — POC on Mac)
+## Setup
 
-### Prerequisites
-- Frappe bench v16+ already running locally (✅ you have this)
-- Python 3.11 & 3.14 (✅ installed)
-- OpenCV, ONNX Runtime (installed via pip in venv)
-- Webcam on your Mac
+### Requirements
 
-### Build Order
+- Frappe bench v16 with ERPNext + HRMS installed
+- Python 3.11 (AI stack venv)
+- Python 3.14 (Frappe bench, already present)
+- macOS webcam or RTSP IP camera
 
-1. **`facecore`**: Pure AI engine + tests
-2. **`embedding_service`**: FastAPI wrapper + tests
-3. **`face_attendance`**: Frappe app + tests
-4. **`edge_client`**: Edge loop + tests
-5. **E2E**: Enroll real face → recognize via edge → Frappe check-in → Attendance doc
-
-### First Run
+### Install AI stack
 
 ```bash
-# Download models (once, ~300MB)
-python -c "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_l')"
+git clone https://github.com/saurabh-awate96/frappe-facecore
+cd frappe-facecore
 
-# Enroll an employee
-# (open Frappe → Employee → create Face Profile → upload photo)
-
-# Run edge client
-python -m edge_client.main --config config.yaml
-
-# Open webcam → recognize face → see Employee Checkin created
-# After ~1h, Frappe's hourly scheduler generates Attendance doc
-```
-
-## Security
-
-- **Edge → Frappe**: API key+secret bound to scoped "Face Edge Device" role (create+read on Employee Checkin only).
-- **Biometric data**: Store only derived embeddings (not reversible to face). Photos optional/deletable.
-- **HTTPS in production** (localhost/private net for v1).
-- **Sync endpoint gated**: `frappe.only_for(["Face Edge Device", "System Manager"])`
-
-See spec §8 for full security model.
-
-## Permissions & Compliance
-
-Enrollment, attendance, and biometric retention are organizational policy decisions — flagged but not automated in v1. Consider:
-- Consent forms & retention period
-- Who can enroll employees (HR only? Self-serve?)
-- Who can view face data (HR manager? System admin? Audit trail?)
-- Deletion-on-termination workflow
-
-## Testing
-
-- **Unit**: facecore (face matching, liveness), embedding_service (API), edge_client (debounce, offline queue)
-- **Integration**: face_attendance (enrollment, sync, permissions)
-- **E2E on Mac**: enroll real face → edge recognizes → Frappe check-in → Attendance
-
-All tests use fixtures (small committed images for same-person/different/spoofed detection).
-
-## Implementation Plan
-
-See [`docs/design/`](docs/design/) for architecture and the detailed implementation plan.
-
-## Version Compatibility
-
-- **Frappe**: v16+ (v15 possible with minor hooks adjustments)
-- **ERPNext**: v16+ (used only for Employee, Attendance DocTypes — no customizations)
-- **HRMS**: v16+
-
-## Development
-
-### Local Setup
-
-```bash
-# Clone this repo
-git clone <repo>
-cd facerecog
-
-# Create venv for AI stack (Python 3.11)
 python3.11 -m venv venv
 source venv/bin/activate
 
-# Install all dev dependencies
-pip install -e ".[dev]"  # from project's pyproject.toml (TBD)
+pip install -e facecore/
+pip install -e embedding_service/
+pip install -e edge_client/
 ```
 
-### Code Style
-
-- **Type hints** on all public signatures
-- **Black** for formatting (88 char line)
-- **Ruff** for linting
-- **Mypy** for type checking
-- **Pytest** for testing
+### Install Frappe app
 
 ```bash
-make format   # black + isort
-make lint     # ruff + mypy
-make test     # pytest
+cd ~/frappe-bench
+bench get-app /path/to/frappe-facecore/face_attendance  # or GitHub URL
+bench --site site1.localhost install-app face_attendance
+bench --site site1.localhost migrate
 ```
 
-(Makefiles TBD — see build phase docs)
+### Download models (once, ~310 MB)
 
-## Known Limitations & Future Work
+```bash
+python -c "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_l').prepare(ctx_id=0)"
+```
 
-- **v1 scope**: single embedding per employee; multi-shot enrollment (average vectors) is phase 2
-- **Real-time dashboards**: not supported (Frappe's auto-attendance runs hourly)
-- **GPU**: v1 CPU only; CUDA support is a config flag for prod edges
-- **Multi-site**: architecture ready; v1 enroll happens on one Frappe site
+### Start embedding service
+
+```bash
+uvicorn embedding_service.app:app --host 127.0.0.1 --port 8080
+```
+
+### Configure edge client
+
+```bash
+cp edge_client/config.example.yaml config.yaml
+# Edit: frappe url, api_key, api_secret, camera_index
+```
+
+### Run edge client
+
+```bash
+python -m edge_client.main --config config.yaml
+```
+
+## Enrollment
+
+1. Open Frappe → HR → Employee → open an employee record
+2. Set **Attendance Device ID** (unique string, e.g. `EMP-001`)
+3. Open **Employee Face Profile** → link employee → upload clear front-facing photo → save
+4. Frappe calls embedding service, stores 512-d vector
+
+## Frappe configuration
+
+1. Open **Shift Type** → enable **Auto Attendance**
+2. Set **Process Attendance After** to today
+3. Assign employees to a shift
+4. Add the **"Face Edge Device"** role to the API user (created via HR → API Access)
+
+## Security
+
+- Edge communicates with Frappe via API key+secret scoped to the **"Face Edge Device"** role
+- Role has create+read on Employee Checkin only — no other HR data access
+- Sync endpoint (`get_face_data`) gated to Face Edge Device and System Manager roles
+- Embeddings are one-way transforms — cannot reconstruct a face image from stored data
+- Enrollment photos are stored optionally and can be deleted after embedding
+
+## Testing
+
+```bash
+# facecore
+cd facecore && pytest
+
+# embedding_service
+cd embedding_service && pytest
+
+# face_attendance (requires bench)
+bench --site site1.localhost run-tests --app face_attendance
+
+# edge_client
+cd edge_client && pytest
+```
+
+## Compatibility
+
+| App | Version |
+|-----|---------|
+| Frappe | v16 |
+| ERPNext | v16 |
+| HRMS | v16 |
 
 ## License
 
-(TBD — recommend MIT for open-source internal use, or proprietary if not shared)
-
-## Authors
-
-- Saurabh (product & architecture)
-- Claude (brainstorming & design validation)
-
-## Next Steps
-
-1. **Approval**: User reviews this README & project structure
-2. **Implementation Plan**: Brainstorming → writing-plans skill → detailed step-by-step
-3. **Scaffold code**: Generate pyproject.toml, __init__.py, test fixtures
-4. **Build phase 1**: facecore + tests
-
----
-
-*Design finalized 2026-06-02. Validated against installed Frappe v16 code.*
+MIT

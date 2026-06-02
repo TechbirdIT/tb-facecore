@@ -9,7 +9,8 @@ from facecore.liveness import LivenessDetector
 from facecore.models import DetectedFace
 
 MODEL_VERSION = "buffalo_l"
-_DEFAULT_LIVENESS_PATH = Path(__file__).resolve().parents[3] / "models" / "minifasnet.onnx"
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+_DEFAULT_LIVENESS_PATH = _REPO_ROOT / "models" / "minifasnet.onnx"
 
 
 class FaceAnalyzer:
@@ -33,9 +34,9 @@ class FaceAnalyzer:
             liveness_thresh: Liveness confidence threshold. Default 0.5.
             liveness_model_path: Path to the MiniFASNet ONNX model.
 
-        Note: Models are auto-downloaded on first use (~300MB). Cache in facerecog/models/.
+        Note: Models auto-download on first use (~300MB), cached in facerecog/models/.
         """
-        from insightface.app import FaceAnalysis
+        from insightface.app import FaceAnalysis  # type: ignore[import-untyped]
 
         self.device = device
         self.det_thresh = det_thresh

@@ -6,7 +6,7 @@ from pathlib import Path
 
 import cv2
 import numpy as np
-import onnxruntime as ort
+import onnxruntime as ort  # type: ignore[import-untyped]
 
 
 def _softmax(logits: np.ndarray) -> np.ndarray:
@@ -35,7 +35,9 @@ class LivenessDetector:
         self.session = ort.InferenceSession(str(model_path), providers=providers)
         self.input_name = self.session.get_inputs()[0].name
 
-    def score(self, image_bgr: np.ndarray, bbox: list[float], scale: float = 2.7) -> float:
+    def score(
+        self, image_bgr: np.ndarray, bbox: list[float], scale: float = 2.7
+    ) -> float:
         """Return the live-class probability in [0.0, 1.0]."""
         h, w = image_bgr.shape[:2]
         x1, y1, x2, y2 = _expand_bbox(bbox, scale, w, h)

@@ -118,6 +118,11 @@ from the employee's shift rules.
 
 `modified` (standard Frappe field) drives incremental sync.
 
+**Naming:** `autoname = "field:employee"` (employee is unique → profile name = employee ID).
+
+**App dependencies:** `required_apps = ["frappe", "erpnext", "hrms"]` in `hooks.py`.
+Dependency direction: frappe → erpnext → hrms → face_attendance (no cycles).
+
 ### Single DocType: Face Recognition Settings
 | Field | Type | Default |
 |-------|------|---------|
@@ -136,8 +141,17 @@ from the employee's shift rules.
   anti-spoof model would reject every one. Liveness is enforced only on the live edge path
   (§6). The service may still return `liveness_score`; it is stored as informational only.
   Store the returned embedding + det_score + `model_version`. **Never imports InsightFace.**
-- On failure (service down, no/multi/low-quality face): `frappe.throw` a clear message;
-  **no half-saved profile**.
+  The HTTP call uses a hard timeout (default 10s).
+- Validate the linked Employee has a non-blank `attendance_device_id` (core enforces its
+  uniqueness; we only guard against blank).
+- On failure (service down/timeout, no/multi/low-quality face, blank device id):
+  `frappe.throw` a clear message; **no half-saved profile**.
+
+### Model-version drift
+`model_version` guards against comparing embeddings produced by different models. The edge
+filters synced embeddings to its active model version. When the embedding model changes,
+affected Employee Face Profiles are flagged for **re-enrollment** (a report lists profiles
+whose `model_version` ≠ the current service version). No automatic re-embedding in v1.
 
 ### Sync API
 - Whitelisted: `face_attendance.api.get_face_data(site=None, since=None)`.
@@ -185,8 +199,14 @@ POST check-in → Frappe **Employee Checkin** created → hourly `process_auto_a
 ## 8. Security & compliance
 
 - **Edge → Frappe:** Frappe API key+secret bound to a dedicated user with a scoped
-  **"Face Edge Device"** role — permission to call only the check-in and sync methods.
-  **Not Administrator.**
+  **"Face Edge Device"** role. **Not Administrator, not HR User.**
+- **Required permission grant (verified against installed v16):** `Employee Checkin` core
+  permissions grant `create` only to System Manager / HR Manager / HR User / Employee. The
+  native check-in endpoint runs `doc.insert()` under the **caller's** permissions, so the
+  edge user would hit a `PermissionError` without an explicit grant. `face_attendance` therefore
+  **ships a Custom DocPerm fixture** granting the "Face Edge Device" role **create + read on
+  Employee Checkin only** (least privilege). The role also needs access to the
+  `get_face_data` sync method (its own whitelisted method).
 - **embedding_service:** shared-secret header; bound to localhost (v1) / private network (prod);
   HTTPS in prod.
 - **Biometric data:** store only **derived embeddings** (not reversible to a face image).
@@ -215,7 +235,9 @@ POST check-in → Frappe **Employee Checkin** created → hourly `process_auto_a
   fixture → low liveness. Small committed fixture images.
 - **embedding_service:** FastAPI `TestClient` — single/multi/no-face, auth header.
 - **face_attendance:** `FrappeTestCase` — enrollment controller (embedding service mocked),
-  sync output shape + incremental `since` filter, role permission on sync/check-in methods.
+  blank-`attendance_device_id` rejection, sync output shape + incremental `since` filter,
+  and a **permission test asserting the "Face Edge Device" user CAN create an Employee
+  Checkin** (proves the DocPerm fixture works) but cannot touch unrelated HR data.
 - **edge_client:** matcher (synthetic vectors), debounce window, offline-queue flush,
   sync merge logic.
 - **E2E on Mac:** enroll a real face via Frappe → run edge client vs webcam → assert an
@@ -265,6 +287,8 @@ live in this repo. All four are developed together.
 
 1. `facecore` + tests
 2. `embedding_service` + tests
-3. `face_attendance` Frappe app (DocTypes, enrollment controller, sync API, role) + tests
+3. `face_attendance` Frappe app: `required_apps`, DocTypes (+ autoname), enrollment
+   controller, sync API, "Face Edge Device" role + Custom DocPerm fixture on Employee
+   Checkin (create+read), model-version re-enroll report + tests
 4. `edge_client` (matcher, sync, capture, debounce, offline queue) + tests
 5. E2E on Mac + operator docs (model download, enrollment, edge config, shift setup)

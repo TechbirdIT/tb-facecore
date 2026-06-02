@@ -6,7 +6,7 @@ import pytest
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from embedding_service.app import app, get_analyzer, get_settings
+from embedding_service.app import MAX_UPLOAD_BYTES, app, get_analyzer, get_settings
 from embedding_service.config import Settings
 from facecore.models import DetectedFace
 
@@ -69,6 +69,13 @@ def test_low_det_score_is_400():
     client = _client([low])
     r = client.post("/embed", files={"file": ("x.png", _png_bytes(), "image/png")})
     assert r.status_code == 400
+
+
+def test_oversized_upload_is_413():
+    client = _client([_face()])
+    big = b"\x00" * (MAX_UPLOAD_BYTES + 1)
+    r = client.post("/embed", files={"file": ("big.png", big, "image/png")})
+    assert r.status_code == 413
 
 
 def test_secret_enforced_when_configured():

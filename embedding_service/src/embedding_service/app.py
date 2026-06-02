@@ -18,6 +18,10 @@ app = FastAPI(
     version="0.1.0",
 )
 
+# Guard against unbounded uploads / decompression bombs.
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB on the wire
+MAX_PIXELS = 50_000_000  # ~50 MP after decode
+
 _settings = Settings.from_env()
 _analyzer: FaceAnalyzer | None = None
 
@@ -54,10 +58,16 @@ async def embed(
     ):
         raise HTTPException(status_code=401, detail="invalid secret")
 
-    raw = await file.read()
+    # Read one byte past the cap so we can detect oversize without loading it all.
+    raw = await file.read(MAX_UPLOAD_BYTES + 1)
+    if len(raw) > MAX_UPLOAD_BYTES:
+        raise HTTPException(status_code=413, detail="file too large")
+
     arr = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
     if arr is None:
         raise HTTPException(status_code=422, detail="invalid image")
+    if arr.shape[0] * arr.shape[1] > MAX_PIXELS:
+        raise HTTPException(status_code=413, detail="image dimensions too large")
 
     faces = [f for f in analyzer.analyze(arr) if f.det_score >= settings.min_det_score]
     if len(faces) == 0:

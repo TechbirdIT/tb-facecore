@@ -1184,6 +1184,7 @@ git add -A && git commit -q -m "feat: add Face Recognition Settings single docty
 {
  "actions": [],
  "autoname": "field:employee",
+ "naming_rule": "By fieldname",
  "creation": "2026-06-02 00:00:00",
  "doctype": "DocType",
  "engine": "InnoDB",
@@ -1249,7 +1250,7 @@ git add -A && git commit -q -m "feat: add Employee Face Profile doctype schema"
 - Modify: `.../employee_face_profile/employee_face_profile.py`
 - Test: `.../employee_face_profile/test_employee_face_profile.py`
 
-**Design:** On `validate`, if `enrollment_image` changed (or embedding is empty), read the attached file bytes, POST to the embedding service, validate the response (single face implied by service; `det_score >= min_det_score`), and store `embedding`/`model_version`/`det_score`/`liveness_score`/`enrolled_on`. Also require the linked Employee to have a non-blank `attendance_device_id`. HTTP uses a hard 10s timeout. On any failure: `frappe.log_error` then `frappe.throw` a generic message. Liveness is **not** gated here.
+**Design:** On `validate`, if `enrollment_image` changed (or embedding is empty), read the attached file bytes, POST to the embedding service, validate the response (single face implied by service; `det_score >= min_det_score`), and store `embedding`/`model_version`/`det_score`/`liveness_score`/`enrolled_on`. Also require the linked Employee to have a non-blank `attendance_device_id`. HTTP uses a hard 10s timeout. On any failure: `frappe.log_error` then `frappe.throw` a generic message. Liveness is **not** gated here. (Note: a synchronous HTTP call inside `validate` is normally an anti-pattern — heavy work belongs in a background job — but enrollment *requires* inline feedback: store the embedding and reject a bad image before the save completes. It is a low-frequency admin action bounded by the 10s timeout, so the synchronous call is the deliberate choice here.)
 
 - [ ] **Step 1: Write the failing test**
 
@@ -1635,6 +1636,9 @@ def get_face_data(since: str | None = None):
     if since:
         filters["modified"] = [">", since]
 
+    # get_all (not get_list) is intentional: this is a role-gated SYSTEM sync.
+    # The only_for gate above is the security boundary; the edge device must
+    # receive every enrolled profile, unfiltered by per-user User Permissions.
     profiles = frappe.get_all(
         "Employee Face Profile",
         filters=filters,

@@ -2,12 +2,14 @@
 
 from __future__ import annotations
 
+import io
 import secrets
 
 import cv2
 import numpy as np
 from facecore import MODEL_VERSION, FaceAnalyzer
 from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from PIL import Image
 from pydantic import BaseModel
 
 from embedding_service.config import Settings
@@ -58,16 +60,26 @@ async def embed(
     ):
         raise HTTPException(status_code=401, detail="invalid secret")
 
-    # Read one byte past the cap so we can detect oversize without loading it all.
+    # Cap bytes read into memory. NOTE: Starlette spools the multipart body to
+    # a temp file before this runs, so this bounds RAM, not disk — enforce the
+    # wire size at the reverse proxy (client_max_body_size) in production.
     raw = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="file too large")
 
+    # Probe dimensions from the header BEFORE decoding, so a small compressed
+    # file cannot expand into an OOM allocation (decompression bomb).
+    try:
+        with Image.open(io.BytesIO(raw)) as probe:
+            width, height = probe.size
+    except Exception:
+        raise HTTPException(status_code=422, detail="invalid image") from None
+    if width * height > MAX_PIXELS:
+        raise HTTPException(status_code=413, detail="image dimensions too large")
+
     arr = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
     if arr is None:
         raise HTTPException(status_code=422, detail="invalid image")
-    if arr.shape[0] * arr.shape[1] > MAX_PIXELS:
-        raise HTTPException(status_code=413, detail="image dimensions too large")
 
     faces = [f for f in analyzer.analyze(arr) if f.det_score >= settings.min_det_score]
     if len(faces) == 0:

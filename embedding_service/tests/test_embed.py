@@ -78,6 +78,12 @@ def test_oversized_upload_is_413():
     assert r.status_code == 413
 
 
+def test_non_image_bytes_is_422():
+    client = _client([_face()])
+    r = client.post("/embed", files={"file": ("x.png", b"not an image", "image/png")})
+    assert r.status_code == 422
+
+
 def test_secret_enforced_when_configured():
     client = _client([_face()], Settings(secret="s3cret", device="cpu", min_det_score=0.5))
     r = client.post("/embed", files={"file": ("x.png", _png_bytes(), "image/png")})

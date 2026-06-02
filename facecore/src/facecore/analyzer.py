@@ -1,10 +1,14 @@
 """FaceAnalyzer — main interface to facecore AI engine."""
 
-from typing import Any
+from pathlib import Path
 
 import numpy as np
 
+from facecore.liveness import LivenessDetector
 from facecore.models import DetectedFace
+
+MODEL_VERSION = "buffalo_l"
+_DEFAULT_LIVENESS_PATH = Path(__file__).resolve().parents[3] / "models" / "minifasnet.onnx"
 
 
 class FaceAnalyzer:
@@ -18,22 +22,34 @@ class FaceAnalyzer:
         device: str = "cpu",
         det_thresh: float = 0.5,
         liveness_thresh: float = 0.5,
-    ):
+        liveness_model_path: str | Path = _DEFAULT_LIVENESS_PATH,
+    ) -> None:
         """Initialize the analyzer.
 
         Args:
             device: 'cpu' or 'cuda' (requires NVIDIA Container Toolkit in production).
             det_thresh: Detection confidence threshold [0.0, 1.0]. Default 0.5.
             liveness_thresh: Liveness confidence threshold. Default 0.5.
+            liveness_model_path: Path to the MiniFASNet ONNX model.
 
         Note: Models are auto-downloaded on first use (~300MB). Cache in facerecog/models/.
         """
+        from insightface.app import FaceAnalysis
+
         self.device = device
         self.det_thresh = det_thresh
         self.liveness_thresh = liveness_thresh
+        providers = (
+            ["CUDAExecutionProvider", "CPUExecutionProvider"]
+            if device == "cuda"
+            else ["CPUExecutionProvider"]
+        )
+        self._app = FaceAnalysis(name=MODEL_VERSION, providers=providers)
+        self._app.prepare(ctx_id=0 if device == "cuda" else -1, det_thresh=det_thresh)
+        self._liveness = LivenessDetector(liveness_model_path, providers)
 
-    def analyze(self, image_array: Any) -> list[DetectedFace]:
-        """Detect and analyze faces in an image.
+    def analyze(self, image_array: np.ndarray) -> list[DetectedFace]:
+        """Detect and analyze faces in a BGR image array (H, W, 3).
 
         Args:
             image_array: numpy array (H, W, 3) in BGR format (OpenCV convention).
@@ -44,8 +60,22 @@ class FaceAnalyzer:
         Raises:
             ValueError: If image is invalid (wrong shape, dtype, etc.).
         """
-        # Stub — will be implemented in phase 1
-        raise NotImplementedError("FaceAnalyzer.analyze() — phase 1 implementation")
+        if image_array.ndim != 3 or image_array.shape[2] != 3:
+            raise ValueError("image_array must be a (H, W, 3) BGR array")
+        results: list[DetectedFace] = []
+        for face in self._app.get(image_array):
+            if float(face.det_score) < self.det_thresh:
+                continue
+            bbox = [float(v) for v in face.bbox]
+            results.append(
+                DetectedFace(
+                    bbox=bbox,
+                    embedding=[float(v) for v in face.normed_embedding],
+                    det_score=float(face.det_score),
+                    liveness_score=self._liveness.score(image_array, bbox),
+                )
+            )
+        return results
 
     def analyze_image_file(self, filepath: str) -> list[DetectedFace]:
         """Detect and analyze faces from a file path.

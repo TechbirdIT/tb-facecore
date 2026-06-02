@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+import cv2
 import numpy as np
 
 from facecore.liveness import LivenessDetector
@@ -90,8 +91,13 @@ class FaceAnalyzer:
             FileNotFoundError: If file not found.
             ValueError: If file is not a valid image.
         """
-        # Stub — will be implemented in phase 1
-        raise NotImplementedError("FaceAnalyzer.analyze_image_file() — phase 1")
+        path = Path(filepath)
+        if not path.is_file():
+            raise FileNotFoundError(filepath)
+        image = cv2.imread(str(path))
+        if image is None:
+            raise ValueError(f"not a readable image: {filepath}")
+        return self.analyze(image)
 
     def cosine_similarity(self, emb1: list[float], emb2: list[float]) -> float:
         """Compute cosine similarity between two embeddings.

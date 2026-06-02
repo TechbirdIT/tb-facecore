@@ -1,9 +1,14 @@
-"""FastAPI application for embedding service."""
+"""FastAPI application for the embedding service."""
 
-from fastapi import FastAPI, File, UploadFile, HTTPException, Header
+from __future__ import annotations
+
+import cv2
+import numpy as np
+from facecore import MODEL_VERSION, FaceAnalyzer
+from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
 from pydantic import BaseModel
-from typing import Optional
-import io
+
+from embedding_service.config import Settings
 
 app = FastAPI(
     title="Embedding Service",
@@ -11,48 +16,58 @@ app = FastAPI(
     version="0.1.0",
 )
 
+_settings = Settings.from_env()
+_analyzer: FaceAnalyzer | None = None
+
+
+def get_settings() -> Settings:
+    return _settings
+
+
+def get_analyzer() -> FaceAnalyzer:
+    global _analyzer
+    if _analyzer is None:
+        _analyzer = FaceAnalyzer(device=_settings.device)
+    return _analyzer
+
 
 class EmbeddingResponse(BaseModel):
-    """Response from the embedding endpoint."""
-
     embedding: list[float]
-    """512-dimensional L2-normalized embedding."""
-
     det_score: float
-    """Detector confidence [0.0, 1.0]."""
-
     liveness_score: float
-    """Anti-spoof probability [0.0, 1.0]."""
-
     model_version: str
-    """Model version tag (e.g. 'buffalo_l')."""
 
 
 @app.post("/embed", response_model=EmbeddingResponse)
 async def embed(
     file: UploadFile = File(...),
-    x_secret: Optional[str] = Header(None),
+    x_secret: str | None = Header(default=None),
+    settings: Settings = Depends(get_settings),
+    analyzer: FaceAnalyzer = Depends(get_analyzer),
 ) -> EmbeddingResponse:
-    """
-    Compute embedding from an uploaded image.
+    if settings.secret is not None and x_secret != settings.secret:
+        raise HTTPException(status_code=401, detail="invalid secret")
 
-    Args:
-        file: Image file (jpg, png).
-        x_secret: Shared secret header (v1: localhost only; prod: required HTTPS).
+    raw = await file.read()
+    arr = cv2.imdecode(np.frombuffer(raw, np.uint8), cv2.IMREAD_COLOR)
+    if arr is None:
+        raise HTTPException(status_code=422, detail="invalid image")
 
-    Returns:
-        Embedding + scores + model version.
+    faces = [f for f in analyzer.analyze(arr) if f.det_score >= settings.min_det_score]
+    if len(faces) == 0:
+        raise HTTPException(status_code=400, detail="no face detected")
+    if len(faces) > 1:
+        raise HTTPException(status_code=400, detail="multiple faces detected")
 
-    Raises:
-        400: No face / multiple faces / low quality.
-        401: Missing/invalid secret header (prod only).
-        422: Invalid image.
-    """
-    # Stub — will be implemented in phase 2
-    raise NotImplementedError("POST /embed — phase 2 implementation")
+    face = faces[0]
+    return EmbeddingResponse(
+        embedding=face.embedding,
+        det_score=face.det_score,
+        liveness_score=face.liveness_score,
+        model_version=MODEL_VERSION,
+    )
 
 
 @app.get("/health")
 async def health() -> dict:
-    """Health check endpoint."""
     return {"status": "ok", "version": "0.1.0"}

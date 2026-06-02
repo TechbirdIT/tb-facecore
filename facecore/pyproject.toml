@@ -1,0 +1,60 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "facecore"
+version = "0.1.0"
+description = "Pure AI engine for face detection, embedding, and liveness analysis"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "Saurabh", email = "saurabh.awate@techbirdit.in"},
+]
+keywords = ["face-recognition", "insightface", "embedding", "liveness"]
+
+dependencies = [
+    "insightface>=0.7.3",
+    "onnxruntime>=1.16.0",
+    "numpy>=1.24.0",
+    "opencv-python>=4.8.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]
+
+[project.urls]
+Repository = "https://github.com/saurabh/facerecog"
+Documentation = "https://github.com/saurabh/facerecog/tree/main/facecore"
+
+[tool.setuptools]
+packages = ["facecore"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+disallow_untyped_defs = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=facecore --cov-report=term-missing"

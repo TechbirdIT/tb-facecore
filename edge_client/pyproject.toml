@@ -1,0 +1,62 @@
+[build-system]
+requires = ["setuptools>=65.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "edge-client"
+version = "0.1.0"
+description = "Edge device client for face recognition attendance at kiosks and cameras"
+readme = "README.md"
+requires-python = ">=3.11"
+license = {text = "MIT"}
+authors = [
+    {name = "Saurabh", email = "saurabh.awate@techbirdit.in"},
+]
+
+dependencies = [
+    "facecore @ file://../facecore",
+    "requests>=2.31.0",
+    "pyyaml>=6.0.0",
+    "opencv-python>=4.8.0",
+    "numpy>=1.24.0",
+    "pydantic>=2.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-cov>=4.1.0",
+    "black>=23.0.0",
+    "ruff>=0.1.0",
+    "mypy>=1.5.0",
+]
+
+[project.scripts]
+edge-client = "edge_client.main:main"
+
+[project.urls]
+Repository = "https://github.com/saurabh/facerecog"
+
+[tool.setuptools]
+packages = ["edge_client"]
+
+[tool.setuptools.package-dir]
+"" = "src"
+
+[tool.black]
+line-length = 88
+target-version = ["py311"]
+
+[tool.ruff]
+line-length = 88
+target-version = "py311"
+select = ["E", "F", "I", "N", "W", "UP"]
+
+[tool.mypy]
+python_version = "3.11"
+warn_return_any = true
+warn_unused_configs = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+addopts = "--cov=edge_client --cov-report=term-missing"

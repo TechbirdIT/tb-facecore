@@ -1,0 +1,28 @@
+# Edge Client Configuration
+# Copy this to config.yaml and fill in your values
+
+frappe:
+  url: "http://localhost:8000"
+  site: "site1.localhost"
+  api_key: "key_xxxx"
+  api_secret: "secret_xxxx"
+
+edge:
+  id: "edge-001"  # unique identifier for this edge device
+  camera_index: 0  # 0 = default webcam; 1+ = external camera or RTSP URL
+  sync_interval: 300  # seconds; how often to pull embeddings from Frappe
+
+matching:
+  threshold: 0.45  # cosine similarity threshold [0.0, 1.0]
+  liveness_threshold: 0.6  # spoof probability threshold
+  min_det_score: 0.5  # detector confidence threshold
+  debounce_minutes: 2  # suppress repeat check-ins within N minutes
+
+offline:
+  db_path: "/var/lib/edge_client/queue.sqlite"  # offline queue storage
+
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
+  file: "/var/log/edge_client/app.log"
+  max_size_mb: 100
+  backup_count: 5

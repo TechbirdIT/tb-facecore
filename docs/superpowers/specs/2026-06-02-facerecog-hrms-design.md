@@ -134,14 +134,20 @@ Dependency direction: frappe → erpnext → hrms → face_attendance (no cycles
 | `punch_debounce_minutes` | Int | 2 |
 
 ### Server logic
-- On Employee Face Profile **before_save**: if a new `enrollment_image` is attached,
-  read the file bytes and `POST` them to `embedding_service /embed`. Validate the
-  response: exactly one face and `det_score >= min_det_score`. **Liveness is NOT gated at
-  enrollment** — an uploaded enrollment photo is inherently a 2D image and a passive
-  anti-spoof model would reject every one. Liveness is enforced only on the live edge path
-  (§6). The service may still return `liveness_score`; it is stored as informational only.
+- Enrollment runs in the Employee Face Profile **controller `validate()`** (own DocType →
+  controller class, never `doc_events`; `validate` is the idiomatic hook for field
+  population + `frappe.throw`). Guard with `self.has_value_changed("enrollment_image")` so
+  it only re-embeds when the image actually changes.
+- If a new `enrollment_image` is attached, read the file bytes and `POST` them to
+  `embedding_service /embed`. Validate the response: exactly one face and
+  `det_score >= min_det_score`. **Liveness is NOT gated at enrollment** — an uploaded
+  enrollment photo is inherently a 2D image and a passive anti-spoof model would reject
+  every one. Liveness is enforced only on the live edge path (§6). The service may still
+  return `liveness_score`; it is stored as informational only.
   Store the returned embedding + det_score + `model_version`. **Never imports InsightFace.**
-  The HTTP call uses a hard timeout (default 10s).
+  The HTTP call uses a hard timeout (default 10s). On failure: `frappe.log_error(
+  frappe.get_traceback(), "face_attendance.enroll")` then `frappe.throw` a generic message
+  (log internals, never leak them to the client).
 - Validate the linked Employee has a non-blank `attendance_device_id` (core enforces its
   uniqueness; we only guard against blank).
 - On failure (service down/timeout, no/multi/low-quality face, blank device id):
@@ -154,10 +160,15 @@ affected Employee Face Profiles are flagged for **re-enrollment** (a report list
 whose `model_version` ≠ the current service version). No automatic re-embedding in v1.
 
 ### Sync API
-- Whitelisted: `face_attendance.api.get_face_data(site=None, since=None)`.
+- Whitelisted, GET-only, type-annotated:
+  `@frappe.whitelist(methods=["GET"])  def get_face_data(site: str | None = None, since: str | None = None)`.
+- **Authorization gate (security-critical):** first line is
+  `frappe.only_for(["Face Edge Device", "System Manager"])`. `@frappe.whitelist()` only
+  verifies login — without this gate any logged-in user could pull biometric embeddings.
 - Returns `[{attendance_device_id, employee, embedding, model_version, modified}]`.
 - Incremental: `modified > since`. Filterable by site/branch (each edge pulls only its
-  location's faces). v1 returns all.
+  location's faces). v1 returns all. Uses `frappe.get_all` (trusted-service query, justified
+  by the explicit role gate above).
 - `attendance_device_id` is read from the linked Employee. Employees missing it are
   excluded and surfaced in a validation report (the edge cannot check them in otherwise).
 
@@ -203,10 +214,17 @@ POST check-in → Frappe **Employee Checkin** created → hourly `process_auto_a
 - **Required permission grant (verified against installed v16):** `Employee Checkin` core
   permissions grant `create` only to System Manager / HR Manager / HR User / Employee. The
   native check-in endpoint runs `doc.insert()` under the **caller's** permissions, so the
-  edge user would hit a `PermissionError` without an explicit grant. `face_attendance` therefore
-  **ships a Custom DocPerm fixture** granting the "Face Edge Device" role **create + read on
-  Employee Checkin only** (least privilege). The role also needs access to the
-  `get_face_data` sync method (its own whitelisted method).
+  edge user would hit a `PermissionError` without an explicit grant. `face_attendance`
+  ships, via **filtered fixtures** in `hooks.py`, both:
+  - the **`Role`** "Face Edge Device" — `{"dt": "Role", "filters": [["name", "=", "Face Edge Device"]]}`
+  - a **`Custom DocPerm`** granting that role **create + read on Employee Checkin only**
+    (least privilege) — `{"dt": "Custom DocPerm", "filters": [["role", "=", "Face Edge Device"]]}`.
+    Custom DocPerm is the correct mechanism to add a role's permissions to an existing
+    (HRMS) DocType without modifying its core JSON.
+- The edge user needs **no `read` on Employee** — the native endpoint looks the employee up
+  via `frappe.db.get_values()`, which bypasses permission checks. Least privilege holds.
+- The `get_face_data` sync method enforces its own role gate (§5).
+- Run `bench --site <site> migrate` after any `hooks.py`/fixture/DocType change.
 - **embedding_service:** shared-secret header; bound to localhost (v1) / private network (prod);
   HTTPS in prod.
 - **Biometric data:** store only **derived embeddings** (not reversible to a face image).

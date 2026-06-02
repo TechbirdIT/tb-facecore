@@ -14,7 +14,7 @@ authors = [
 ]
 
 dependencies = [
-    "facecore @ file://../facecore",
+    "facecore",
     "requests>=2.31.0",
     "pyyaml>=6.0.0",
     "opencv-python>=4.8.0",

@@ -18,7 +18,10 @@ dependencies = [
     "uvicorn>=0.24.0",
     "pydantic>=2.0.0",
     "python-multipart>=0.0.6",
-    "facecore",
+    # facecore is a sibling monorepo package — install it editable FIRST
+    # (`pip install -e ../facecore`). Deliberately NOT listed here: a bare
+    # index name would let pip resolve it from public PyPI (dependency
+    # confusion), and relative file: URLs resolve against the caller's CWD.
 ]
 
 [project.optional-dependencies]

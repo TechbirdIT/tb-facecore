@@ -14,7 +14,10 @@ authors = [
 ]
 
 dependencies = [
-    "facecore",
+    # facecore is a sibling monorepo package — install it editable FIRST
+    # (`pip install -e ../facecore`). Deliberately NOT listed here: a bare
+    # index name would let pip resolve it from public PyPI (dependency
+    # confusion), and relative file: URLs resolve against the caller's CWD.
     "requests>=2.31.0",
     "pyyaml>=6.0.0",
     "opencv-python>=4.8.0",

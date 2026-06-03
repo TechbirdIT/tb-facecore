@@ -21,8 +21,4 @@ matching:
 offline:
   db_path: "/var/lib/edge_client/queue.sqlite"  # offline queue storage
 
-logging:
-  level: "INFO"  # DEBUG, INFO, WARNING, ERROR
-  file: "/var/log/edge_client/app.log"
-  max_size_mb: 100
-  backup_count: 5
+# Logging is stderr-only: INFO by default, DEBUG with --debug.

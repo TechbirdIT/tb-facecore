@@ -23,7 +23,9 @@ class FrappeClient:
             params["since"] = since
         resp = requests.get(
             f"{self.base}/api/method/{_SYNC_METHOD}",
-            params=params, headers=self.headers, timeout=_TIMEOUT,
+            params=params,
+            headers=self.headers,
+            timeout=_TIMEOUT,
         )
         if resp.status_code != 200:
             raise RuntimeError(f"sync failed: {resp.status_code} {resp.text}")
@@ -38,7 +40,9 @@ class FrappeClient:
         }
         resp = requests.post(
             f"{self.base}/api/method/{_CHECKIN_METHOD}",
-            data=data, headers=self.headers, timeout=_TIMEOUT,
+            data=data,
+            headers=self.headers,
+            timeout=_TIMEOUT,
         )
         if resp.status_code != 200:
             raise RuntimeError(f"checkin failed: {resp.status_code} {resp.text}")

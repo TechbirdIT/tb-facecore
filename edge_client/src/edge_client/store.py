@@ -43,12 +43,18 @@ class Store:
     def upsert_faces(self, rows: list[dict]) -> None:
         with self._conn() as c:
             c.executemany(
-                """INSERT INTO faces
-                   (attendance_device_id, employee, embedding, model_version, modified)
-                   VALUES (:attendance_device_id, :employee, :embedding, :model_version, :modified)
-                   ON CONFLICT(attendance_device_id) DO UPDATE SET
-                     employee=excluded.employee, embedding=excluded.embedding,
-                     model_version=excluded.model_version, modified=excluded.modified""",
+                """
+                INSERT INTO faces
+                    (attendance_device_id, employee, embedding, model_version, modified)
+                VALUES
+                    (:attendance_device_id, :employee, :embedding,
+                     :model_version, :modified)
+                ON CONFLICT(attendance_device_id) DO UPDATE SET
+                    employee=excluded.employee,
+                    embedding=excluded.embedding,
+                    model_version=excluded.model_version,
+                    modified=excluded.modified
+                """,
                 rows,
             )
 
@@ -64,13 +70,16 @@ class Store:
     def enqueue_checkin(self, device_id: str, timestamp: str, edge_id: str) -> None:
         with self._conn() as c:
             c.execute(
-                "INSERT INTO checkin_queue (device_id, timestamp, edge_id) VALUES (?, ?, ?)",
+                "INSERT INTO checkin_queue (device_id, timestamp, edge_id) "
+                "VALUES (?, ?, ?)",
                 (device_id, timestamp, edge_id),
             )
 
     def pending_checkins(self) -> list[dict]:
         with self._conn() as c:
-            return [dict(r) for r in c.execute("SELECT * FROM checkin_queue ORDER BY id")]
+            return [
+                dict(r) for r in c.execute("SELECT * FROM checkin_queue ORDER BY id")
+            ]
 
     def delete_checkin(self, row_id: int) -> None:
         with self._conn() as c:

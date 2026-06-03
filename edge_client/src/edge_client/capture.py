@@ -11,7 +11,9 @@ from edge_client.sync import flush_queue, sync_faces
 logger = logging.getLogger(__name__)
 
 
-def process_frame(frame, analyzer, matcher, debouncer, client, store, cfg, now: datetime) -> None:
+def process_frame(
+    frame, analyzer, matcher, debouncer, client, store, cfg, now: datetime
+) -> None:
     """Handle one frame: detect → liveness → match → debounce → check-in/enqueue."""
     for face in analyzer.analyze(frame):
         if face.liveness_score < cfg.liveness_threshold:
@@ -32,7 +34,9 @@ def process_frame(frame, analyzer, matcher, debouncer, client, store, cfg, now: 
             store.enqueue_checkin(device_id, timestamp, cfg.edge_id)
 
 
-def run_capture(analyzer, client, store, cfg, model_version: str) -> None:  # pragma: no cover
+def run_capture(
+    analyzer, client, store, cfg, model_version: str
+) -> None:  # pragma: no cover
     """OpenCV read loop. Thin I/O glue around process_frame + periodic sync/flush."""
     import cv2
 
@@ -51,8 +55,16 @@ def run_capture(analyzer, client, store, cfg, model_version: str) -> None:  # pr
                 if not cap.isOpened():
                     cap.open(cfg.camera_index)
                 continue
-            process_frame(frame, analyzer, matcher, debouncer, client, store, cfg,
-                          now=datetime.now())
+            process_frame(
+                frame,
+                analyzer,
+                matcher,
+                debouncer,
+                client,
+                store,
+                cfg,
+                now=datetime.now(),
+            )
             if time.monotonic() - last_sync >= cfg.sync_interval:
                 matcher = sync_faces(client, store, model_version)
                 flush_queue(client, store)

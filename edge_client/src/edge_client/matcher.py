@@ -12,7 +12,9 @@ class Matcher:
         rows = [r for r in face_rows if r.get("model_version") == model_version]
         self.device_ids = [r["attendance_device_id"] for r in rows]
         if rows:
-            mat = np.asarray([json.loads(r["embedding"]) for r in rows], dtype=np.float32)
+            mat = np.asarray(
+                [json.loads(r["embedding"]) for r in rows], dtype=np.float32
+            )
             norms = np.linalg.norm(mat, axis=1, keepdims=True)
             norms[norms == 0] = 1.0
             self.matrix = mat / norms

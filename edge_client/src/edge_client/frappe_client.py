@@ -29,7 +29,8 @@ class FrappeClient:
         )
         if resp.status_code != 200:
             raise RuntimeError(f"sync failed: {resp.status_code} {resp.text}")
-        return resp.json()["message"]
+        rows: list[dict] = resp.json()["message"]
+        return rows
 
     def post_checkin(self, device_id: str, timestamp: str, edge_id: str) -> None:
         # log_type omitted so Frappe derives IN/OUT from shift rules.

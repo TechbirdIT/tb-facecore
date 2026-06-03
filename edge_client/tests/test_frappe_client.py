@@ -10,8 +10,9 @@ def _client():
 
 @patch("edge_client.frappe_client.requests.get")
 def test_fetch_face_data_returns_message(mock_get):
-    mock_get.return_value = MagicMock(status_code=200,
-                                      json=lambda: {"message": [{"attendance_device_id": "D1"}]})
+    mock_get.return_value = MagicMock(
+        status_code=200, json=lambda: {"message": [{"attendance_device_id": "D1"}]}
+    )
     rows = _client().fetch_face_data(since="2026-01-01 00:00:00")
     assert rows == [{"attendance_device_id": "D1"}]
     _, kwargs = mock_get.call_args

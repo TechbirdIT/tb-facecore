@@ -65,7 +65,8 @@ class Store:
     def max_modified(self) -> str | None:
         with self._conn() as c:
             row = c.execute("SELECT MAX(modified) AS m FROM faces").fetchone()
-            return row["m"]
+            value: str | None = row["m"]
+            return value
 
     def enqueue_checkin(self, device_id: str, timestamp: str, edge_id: str) -> None:
         with self._conn() as c:

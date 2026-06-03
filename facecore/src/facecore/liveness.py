@@ -10,8 +10,9 @@ import onnxruntime as ort  # type: ignore[import-untyped]
 
 
 def _softmax(logits: np.ndarray) -> np.ndarray:
-    e = np.exp(logits - logits.max())
-    return e / e.sum()
+    e: np.ndarray = np.exp(logits - logits.max())
+    result: np.ndarray = e / e.sum()
+    return result
 
 
 def _expand_bbox(

@@ -4,12 +4,13 @@ from datetime import datetime
 from unittest.mock import MagicMock
 
 import numpy as np
+from facecore.models import DetectedFace
+
 from edge_client.capture import process_frame
 from edge_client.config import EdgeConfig
 from edge_client.debounce import Debouncer
 from edge_client.matcher import Matcher
 from edge_client.store import Store
-from facecore.models import DetectedFace
 
 
 def _cfg():
@@ -74,6 +75,7 @@ def test_debounced_second_punch_skipped(tmp_path):
     store = Store(str(tmp_path / "q.sqlite"))
     deb = Debouncer(2)
     args = (_analyzer_with(_live_face()), _matcher(), deb, client, store, _cfg())
-    process_frame(np.zeros((4, 4, 3), np.uint8), *args, now=datetime(2026, 1, 1, 9, 0, 0))
-    process_frame(np.zeros((4, 4, 3), np.uint8), *args, now=datetime(2026, 1, 1, 9, 0, 30))
+    frame = np.zeros((4, 4, 3), np.uint8)
+    process_frame(frame, *args, now=datetime(2026, 1, 1, 9, 0, 0))
+    process_frame(frame, *args, now=datetime(2026, 1, 1, 9, 0, 30))
     assert client.post_checkin.call_count == 1

@@ -1,6 +1,7 @@
 # facecore/tests/test_liveness.py
 import numpy as np
-from facecore.liveness import _softmax, _expand_bbox
+
+from facecore.liveness import _expand_bbox, _softmax
 
 
 def test_softmax_sums_to_one():

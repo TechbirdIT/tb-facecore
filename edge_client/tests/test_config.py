@@ -2,6 +2,7 @@
 import textwrap
 
 import pytest
+
 from edge_client.config import EdgeConfig, load_config
 
 

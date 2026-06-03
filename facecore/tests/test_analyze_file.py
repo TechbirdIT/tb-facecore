@@ -2,6 +2,7 @@
 import cv2
 import numpy as np
 import pytest
+
 from facecore.analyzer import FaceAnalyzer
 
 

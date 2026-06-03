@@ -3,6 +3,7 @@ import json
 from unittest.mock import MagicMock
 
 import numpy as np
+
 from edge_client.store import Store
 from edge_client.sync import flush_queue, sync_faces
 
@@ -30,7 +31,8 @@ def test_sync_keeps_last_good_on_failure(tmp_path):
     store = Store(str(tmp_path / "q.sqlite"))
     store.upsert_faces([{"attendance_device_id": "D1", "employee": "E1",
                          "embedding": json.dumps(_vec([1, 0, 0])),
-                         "model_version": "buffalo_l", "modified": "2026-01-01 00:00:00"}])
+                         "model_version": "buffalo_l",
+                         "modified": "2026-01-01 00:00:00"}])
     client = MagicMock()
     client.fetch_face_data.side_effect = RuntimeError("network down")
     matcher = sync_faces(client, store, model_version="buffalo_l")

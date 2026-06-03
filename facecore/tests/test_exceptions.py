@@ -1,10 +1,11 @@
 # facecore/tests/test_exceptions.py
 import pytest
+
 from facecore.exceptions import (
     FaceCoreError,
-    NoFaceError,
-    MultipleFacesError,
     LowQualityError,
+    MultipleFacesError,
+    NoFaceError,
 )
 
 

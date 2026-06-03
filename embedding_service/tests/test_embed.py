@@ -2,13 +2,12 @@
 import io
 
 import numpy as np
-import pytest
+from facecore.models import DetectedFace
 from fastapi.testclient import TestClient
 from PIL import Image
 
 from embedding_service.app import MAX_UPLOAD_BYTES, app, get_analyzer, get_settings
 from embedding_service.config import Settings
-from facecore.models import DetectedFace
 
 
 def _png_bytes():
@@ -85,7 +84,9 @@ def test_non_image_bytes_is_422():
 
 
 def test_secret_enforced_when_configured():
-    client = _client([_face()], Settings(secret="s3cret", device="cpu", min_det_score=0.5))
+    client = _client(
+        [_face()], Settings(secret="s3cret", device="cpu", min_det_score=0.5)
+    )
     r = client.post("/embed", files={"file": ("x.png", _png_bytes(), "image/png")})
     assert r.status_code == 401
     r2 = client.post("/embed", files={"file": ("x.png", _png_bytes(), "image/png")},

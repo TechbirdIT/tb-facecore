@@ -13,7 +13,7 @@ class Settings:
     min_det_score: float
 
     @classmethod
-    def from_env(cls) -> "Settings":
+    def from_env(cls) -> Settings:
         return cls(
             secret=os.getenv("EMBEDDING_SERVICE_SECRET") or None,
             device=os.getenv("EMBEDDING_SERVICE_DEVICE", "cpu"),

@@ -1,5 +1,6 @@
 # facecore/tests/test_analyze_unit.py
 import numpy as np
+
 from facecore.analyzer import FaceAnalyzer
 from facecore.models import DetectedFace
 

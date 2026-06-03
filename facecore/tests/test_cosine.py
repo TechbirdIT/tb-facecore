@@ -1,5 +1,4 @@
 # facecore/tests/test_cosine.py
-import numpy as np
 from facecore.analyzer import FaceAnalyzer
 
 
@@ -9,7 +8,7 @@ def _analyzer():
 
 
 def test_identical_vectors_similarity_is_one():
-    a = analyzer = _analyzer()
+    a = _analyzer()
     v = [1.0, 0.0, 0.0]
     assert abs(FaceAnalyzer.cosine_similarity(a, v, v) - 1.0) < 1e-6
 

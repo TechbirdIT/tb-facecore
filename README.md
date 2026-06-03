@@ -1,6 +1,8 @@
-# frappe-facecore
+# tb-facecore
 
 Facial recognition biometric attendance for Frappe HRMS v16. Employees check in by looking at a camera — no cards, no PINs. Attendance records are created automatically via Frappe's native shift and auto-attendance pipeline.
+
+This repository contains the AI/edge stack. The companion Frappe app lives at [TechbirdIT/tb-face_attendance](https://github.com/TechbirdIT/tb-face_attendance).
 
 ## How it works
 
@@ -29,8 +31,8 @@ HR uploads an employee photo in Frappe. The face is embedded as a 512-dimensiona
 |---------|------|
 | `facecore` | Pure AI engine — SCRFD detection + ArcFace 512-d embedding + MiniFASNet liveness. No I/O, no Frappe, no web. |
 | `embedding_service` | FastAPI microservice wrapping facecore. Called by Frappe at enrollment. Keeps InsightFace out of the bench. |
-| `face_attendance` | Frappe app (v16). Employee Face Profile DocType, sync API, settings, role fixtures. |
 | `edge_client` | Edge device app. Camera → liveness gate → NumPy cosine match → debounce → post check-in. SQLite offline queue. |
+| [`tb-face_attendance`](https://github.com/TechbirdIT/tb-face_attendance) | Frappe app (v16, separate repo). Employee Face Profile DocType, sync API, settings, role fixtures. |
 
 ## Stack
 
@@ -40,14 +42,14 @@ HR uploads an employee photo in Frappe. The face is embedded as a 512-dimensiona
 | Liveness | Silent-Face MiniFASNet (passive, no user interaction) |
 | Matching | NumPy cosine similarity (sub-ms, no vector DB needed) |
 | Runtime | ONNX Runtime — CPU on dev, CUDA-switchable on prod |
-| Python | 3.11 for AI stack, 3.14 for Frappe bench |
+| Python | 3.11 for AI stack |
 | Camera | OpenCV — webcam and RTSP/IP cameras |
 | Offline queue | SQLite — durable across edge restarts |
 
 ## Repository layout
 
 ```
-frappe-facecore/
+tb-facecore/
 ├── facecore/                   # AI engine (shared lib)
 │   ├── src/facecore/
 │   └── pyproject.toml
@@ -58,33 +60,25 @@ frappe-facecore/
 │   ├── src/edge_client/
 │   ├── config.example.yaml
 │   └── pyproject.toml
-├── docs/design/
-│   └── architecture.md         # Full architecture & design decisions
+├── docs/
+│   ├── design/architecture.md  # Full architecture & design decisions
+│   └── operations.md           # Operator guide
 └── models/                     # Downloaded AI models (gitignored, ~310MB)
-
-frappe-bench/apps/face_attendance/   # Frappe app (bench new-app)
-├── hooks.py                         # required_apps, fixtures, scheduler
-├── fixtures/                        # Role + Custom DocPerm exports
-└── face_attendance/
-    └── hr/doctype/
-        ├── employee_face_profile/
-        └── face_recognition_settings/
 ```
 
 ## Setup
 
 ### Requirements
 
-- Frappe bench v16 with ERPNext + HRMS installed
+- Frappe bench v16 with ERPNext + HRMS and [tb-face_attendance](https://github.com/TechbirdIT/tb-face_attendance) installed
 - Python 3.11 (AI stack venv)
-- Python 3.14 (Frappe bench, already present)
-- macOS webcam or RTSP IP camera
+- Webcam or RTSP IP camera
 
 ### Install AI stack
 
 ```bash
-git clone https://github.com/saurabh-awate96/frappe-facecore
-cd frappe-facecore
+git clone https://github.com/TechbirdIT/tb-facecore
+cd tb-facecore
 
 python3.11 -m venv venv
 source venv/bin/activate
@@ -98,7 +92,7 @@ pip install -e edge_client/
 
 ```bash
 cd ~/frappe-bench
-bench get-app /path/to/frappe-facecore/face_attendance  # or GitHub URL
+bench get-app https://github.com/TechbirdIT/tb-face_attendance
 bench --site site1.localhost install-app face_attendance
 bench --site site1.localhost migrate
 ```
@@ -112,6 +106,7 @@ python -c "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_
 ### Start embedding service
 
 ```bash
+export EMBEDDING_SERVICE_SECRET=<secret>   # must match Face Recognition Settings
 uvicorn embedding_service.app:app --host 127.0.0.1 --port 8080
 ```
 
@@ -139,7 +134,7 @@ python -m edge_client.main --config config.yaml
 
 1. Open **Shift Type** → enable **Auto Attendance**
 2. Set **Process Attendance After** to today
-3. Assign employees to a shift
+3. Assign employees to a shift (Shift Assignment or Employee default shift)
 4. Add the **"Face Edge Device"** role to the API user (created via HR → API Access)
 
 ## Security
@@ -158,9 +153,6 @@ cd facecore && pytest
 
 # embedding_service
 cd embedding_service && pytest
-
-# face_attendance (requires bench)
-bench --site site1.localhost run-tests --app face_attendance
 
 # edge_client
 cd edge_client && pytest

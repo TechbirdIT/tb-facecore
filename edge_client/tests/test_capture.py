@@ -39,17 +39,20 @@ def _live_face():
                         det_score=0.9, liveness_score=0.9)
 
 
-def test_match_posts_checkin(tmp_path):
+def test_match_posts_event(tmp_path):
     client = MagicMock()
     store = Store(str(tmp_path / "q.sqlite"))
     process_frame(np.zeros((4, 4, 3), np.uint8), _analyzer_with(_live_face()),
                   _matcher(), Debouncer(2), client, store, _cfg(),
                   now=datetime(2026, 1, 1, 9, 0, 0))
-    client.post_checkin.assert_called_once()
-    assert store.pending_checkins() == []
+    client.post_event.assert_called_once()
+    args = client.post_event.call_args[0]
+    assert args[0] == "edge-001"
+    assert args[1] == "D1"
+    assert store.pending_events() == []
 
 
-def test_spoof_below_liveness_no_checkin(tmp_path):
+def test_spoof_below_liveness_no_event(tmp_path):
     spoof = DetectedFace(bbox=[0, 0, 1, 1], embedding=[1.0, 0.0, 0.0],
                          det_score=0.9, liveness_score=0.1)
     client = MagicMock()
@@ -57,17 +60,17 @@ def test_spoof_below_liveness_no_checkin(tmp_path):
     process_frame(np.zeros((4, 4, 3), np.uint8), _analyzer_with(spoof),
                   _matcher(), Debouncer(2), client, store, _cfg(),
                   now=datetime(2026, 1, 1, 9, 0, 0))
-    client.post_checkin.assert_not_called()
+    client.post_event.assert_not_called()
 
 
 def test_post_failure_enqueues(tmp_path):
     client = MagicMock()
-    client.post_checkin.side_effect = RuntimeError("frappe down")
+    client.post_event.side_effect = RuntimeError("frappe down")
     store = Store(str(tmp_path / "q.sqlite"))
     process_frame(np.zeros((4, 4, 3), np.uint8), _analyzer_with(_live_face()),
                   _matcher(), Debouncer(2), client, store, _cfg(),
                   now=datetime(2026, 1, 1, 9, 0, 0))
-    assert len(store.pending_checkins()) == 1
+    assert len(store.pending_events()) == 1
 
 
 def test_debounced_second_punch_skipped(tmp_path):
@@ -78,4 +81,4 @@ def test_debounced_second_punch_skipped(tmp_path):
     frame = np.zeros((4, 4, 3), np.uint8)
     process_frame(frame, *args, now=datetime(2026, 1, 1, 9, 0, 0))
     process_frame(frame, *args, now=datetime(2026, 1, 1, 9, 0, 30))
-    assert client.post_checkin.call_count == 1
+    assert client.post_event.call_count == 1

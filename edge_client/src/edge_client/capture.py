@@ -24,6 +24,7 @@ def process_frame(
             continue
         device_id, score = result
         if not debouncer.allow(device_id, now):
+            logger.debug("debounced %s", device_id)
             continue
         timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
         try:

@@ -4,7 +4,8 @@ Client application for edge devices (kiosks, cameras) that:
 - Captures frames from local camera (webcam, IP camera, etc.)
 - Analyzes faces locally using facecore
 - Matches against embeddings pulled from Frappe
-- Posts check-ins to the native attendance system
+- Posts recognition events (with similarity + liveness scores) to the `face_attendance` app — check-ins are created server-side
+- Heartbeats on every sync tick so Frappe can flag unreachable devices
 - Handles offline queuing (SQLite) for network resilience
 
 ## Overview
@@ -53,23 +54,24 @@ The app will:
 1. Load config
 2. Sync embeddings from Frappe (`get_face_data`)
 3. Open camera
-4. Loop: capture frame → detect → liveness gate → match → debounce → POST check-in
-5. Handle errors: camera failure (retry), Frappe down (queue offline), no match (ignore)
+4. Loop: capture frame → detect → liveness gate → match → debounce → POST recognition event
+5. Each sync tick: refresh embeddings, flush offline queue, heartbeat
+6. Handle errors: camera failure (retry), Frappe down (queue offline), no match (ignore)
 
 ## Offline Resilience
 
 If Frappe is unreachable:
-- Check-ins are enqueued to local SQLite with original timestamp
-- Background flush retries on reconnect
+- Events are enqueued to local SQLite with original timestamp and scores
+- Flush retries on each sync tick; stops at first connection failure, drops 4xx-rejected items
 - Survives edge process restart (durable storage)
-- Prevents duplicate storms (enqueue-once logic)
+- Server dedup (unique event index) makes queue drains idempotent
 
 ## Debouncing
 
-Suppress repeat check-ins within `debounce_minutes` per `attendance_device_id`:
-- Employee scans face at 9:00 AM → check-in created
+Suppress repeat events within `debounce_minutes` per `attendance_device_id`:
+- Employee scans face at 9:00 AM → event posted, check-in created
 - Same employee re-scans at 9:01 AM → ignored (within 2-min window)
-- Scan at 9:05 AM → new check-in (past 2-min window)
+- Scan at 9:05 AM → new event (past 2-min window)
 
 ## Testing
 
@@ -88,20 +90,21 @@ Tests cover:
 
 ```
 DEBUG:     Frame analysis, matcher scores
-INFO:      Check-ins posted, sync events
+INFO:      Events posted, sync activity
 WARNING:   Camera open failures, low quality
 ERROR:     Frappe API failures, queue full
 ```
 
-Log file location: see `config.yaml` `logging.file`.
+Logging is stderr-only — INFO by default, DEBUG with `--debug`.
 
 ## Permissions (Frappe)
 
 The edge user needs:
 - API key+secret (bound to "Face Edge Device" role)
-- Create + read on `Employee Checkin`
-- Read on `get_face_data` whitelisted method
+- A matching **Face Edge Device** record in Frappe (Device ID = `edge.id`)
+- Access to `get_face_data`, `post_event`, and `heartbeat` whitelisted methods (role-gated)
 
+Employee Checkins are created server-side from posted events — the role never writes them directly.
 See `face_attendance` app fixtures for the role + Custom DocPerm definition.
 
 ## Performance
@@ -109,7 +112,7 @@ See `face_attendance` app fixtures for the role + Custom DocPerm definition.
 - Frame capture: ~30ms (30 FPS)
 - Face analysis: ~100ms (facecore on CPU)
 - Match + debounce: <1ms (NumPy cosine)
-- Check-in POST: ~50–100ms (network)
+- Event POST: ~50–100ms (network)
 
 **Total loop: ~150–300ms** → practical 3–7 FPS recognition rate on a single-camera edge.
 
@@ -130,4 +133,5 @@ v1 handles one camera per edge. Multi-camera edges (different angles, entrance/e
 ## References
 
 - facecore: `../facecore/README.md`
-- Frappe integration: `../docs/superpowers/specs/2026-06-02-facerecog-hrms-design.md` § 6, 9
+- Architecture & design decisions: `../docs/design/architecture.md`
+- Operator guide: `../docs/operations.md`

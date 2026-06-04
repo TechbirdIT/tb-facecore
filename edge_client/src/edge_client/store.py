@@ -20,6 +20,13 @@ CREATE TABLE IF NOT EXISTS checkin_queue (
     timestamp TEXT NOT NULL,
     edge_id TEXT NOT NULL
 );
+CREATE TABLE IF NOT EXISTS event_queue (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    device_id TEXT NOT NULL,
+    timestamp TEXT NOT NULL,
+    similarity REAL,
+    liveness REAL
+);
 """
 
 
@@ -85,3 +92,21 @@ class Store:
     def delete_checkin(self, row_id: int) -> None:
         with self._conn() as c:
             c.execute("DELETE FROM checkin_queue WHERE id = ?", (row_id,))
+
+    def enqueue_event(
+        self, device_id: str, timestamp: str, similarity: float, liveness: float
+    ) -> None:
+        with self._conn() as c:
+            c.execute(
+                "INSERT INTO event_queue (device_id, timestamp, similarity, liveness)"
+                " VALUES (?, ?, ?, ?)",
+                (device_id, timestamp, similarity, liveness),
+            )
+
+    def pending_events(self) -> list[dict]:
+        with self._conn() as c:
+            return [dict(r) for r in c.execute("SELECT * FROM event_queue ORDER BY id")]
+
+    def delete_event(self, row_id: int) -> None:
+        with self._conn() as c:
+            c.execute("DELETE FROM event_queue WHERE id = ?", (row_id,))

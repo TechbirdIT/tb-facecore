@@ -6,22 +6,23 @@ This repository contains the AI/edge stack. The companion Frappe app lives at [T
 
 ## How it works
 
-HR uploads an employee photo in Frappe. The face is embedded as a 512-dimensional vector and stored against the employee record. Edge devices (kiosks, IP cameras) run a continuous recognition loop — when a face matches, a check-in is posted to Frappe via the native HRMS API. Frappe's shift engine derives IN/OUT and creates Attendance documents hourly.
+HR uploads an employee photo in Frappe. The face is embedded as a 512-dimensional vector and stored against the employee record; an approval workflow gates which profiles sync to devices. Edge devices (kiosks, IP cameras) run a continuous recognition loop — when a face matches, a recognition event (with similarity and liveness scores) is posted to the `face_attendance` app, which creates the Employee Checkin server-side and keeps a full audit trail. Devices heartbeat on every sync tick; a scheduled job flags devices that go quiet. Frappe's shift engine derives IN/OUT and creates Attendance documents hourly.
 
 ```
                     ┌──────────────────────────┐
    HR uploads photo │  FRAPPE + face_attendance│
-        ──────────► │  Employee Face Profile   │──► POST /embed
+        ──────────► │  Face Profile + workflow │──► POST /embed
+                    │  Device registry, events │
                     │  Sync API + Settings     │
                     └──────────────────────────┘
                           ▲          ▲
-              check-in    │          │ pull embeddings
-              REST API    │          │
+       post_event +       │          │ pull approved
+       heartbeat REST     │          │ embeddings
                     ┌─────┴──────────┴───────┐    ┌──────────────────┐
                     │  edge_client (venv)    │    │ embedding_service │
                     │  camera → facecore     │    │ FastAPI           │
                     │  → NumPy match         │    │ POST /embed       │
-                    │  → debounce → checkin  │    └──────────────────┘
+                    │  → debounce → event    │    └──────────────────┘
                     └────────────────────────┘
 ```
 
@@ -31,8 +32,8 @@ HR uploads an employee photo in Frappe. The face is embedded as a 512-dimensiona
 |---------|------|
 | `facecore` | Pure AI engine — SCRFD detection + ArcFace 512-d embedding + MiniFASNet liveness. No I/O, no Frappe, no web. |
 | `embedding_service` | FastAPI microservice wrapping facecore. Called by Frappe at enrollment. Keeps InsightFace out of the bench. |
-| `edge_client` | Edge device app. Camera → liveness gate → NumPy cosine match → debounce → post check-in. SQLite offline queue. |
-| [`tb-face_attendance`](https://github.com/TechbirdIT/tb-face_attendance) | Frappe app (v16, separate repo). Employee Face Profile DocType, sync API, settings, role fixtures. |
+| `edge_client` | Edge device app. Camera → liveness gate → NumPy cosine match → debounce → post recognition event. Heartbeat per sync tick. SQLite offline queue. |
+| [`tb-face_attendance`](https://github.com/TechbirdIT/tb-face_attendance) | Frappe app (v16, separate repo). Face profiles + approval workflow, edge device registry, recognition event audit trail, sync/event/heartbeat APIs, health jobs, role fixtures. |
 
 ## Stack
 
@@ -129,6 +130,7 @@ python -m edge_client.main --config config.yaml
 2. Set **Attendance Device ID** (unique string, e.g. `EMP-001`)
 3. Open **Employee Face Profile** → link employee → upload clear front-facing photo → save
 4. Frappe calls embedding service, stores 512-d vector
+5. Approve the profile (**Face Profile Approval** workflow) — only Approved profiles sync to edge devices
 
 ## Frappe configuration
 
@@ -136,12 +138,15 @@ python -m edge_client.main --config config.yaml
 2. Set **Process Attendance After** to today
 3. Assign employees to a shift (Shift Assignment or Employee default shift)
 4. Add the **"Face Edge Device"** role to the API user (created via HR → API Access)
+5. Create a **Face Edge Device** record whose Device ID matches `edge.id` in the client config — events and heartbeats from unregistered devices are rejected
 
 ## Security
 
 - Edge communicates with Frappe via API key+secret scoped to the **"Face Edge Device"** role
-- Role has create+read on Employee Checkin only — no other HR data access
-- Sync endpoint (`get_face_data`) gated to Face Edge Device and System Manager roles
+- Edge posts recognition events; Employee Checkins are created server-side — the role cannot write checkins directly
+- All edge endpoints (`get_face_data`, `post_event`, `heartbeat`) gated to Face Edge Device and System Manager roles
+- Only **Approved** face profiles sync to devices; the raw embedding field is permlevel-restricted in Desk
+- Every recognition is audited as a **Face Recognition Event** (scores, device, linked checkin); duplicates are rejected by a unique index
 - Embeddings are one-way transforms — cannot reconstruct a face image from stored data
 - Enrollment photos are stored optionally and can be deleted after embedding
 

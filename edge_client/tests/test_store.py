@@ -41,3 +41,14 @@ def test_checkin_queue_roundtrip(tmp_path):
     assert len(pending) == 1
     store.delete_checkin(pending[0]["id"])
     assert store.pending_checkins() == []
+
+
+def test_event_queue_roundtrip(tmp_path):
+    store = Store(str(tmp_path / "q.sqlite"))
+    store.enqueue_event("D1", "2026-06-04 09:00:00", 0.83, 0.95)
+    rows = store.pending_events()
+    assert len(rows) == 1
+    assert rows[0]["device_id"] == "D1"
+    assert rows[0]["similarity"] == 0.83
+    store.delete_event(rows[0]["id"])
+    assert store.pending_events() == []

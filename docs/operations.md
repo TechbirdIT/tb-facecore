@@ -7,7 +7,8 @@ cd /Users/saurabh/facerecog && source venv/bin/activate
 # buffalo_l (SCRFD + ArcFace) — auto-downloads to ~/.insightface/models
 python -c "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_l').prepare(ctx_id=-1)"
 # MiniFASNet liveness ONNX → models/minifasnet.onnx
-# Place the Silent-Face MiniFASNet ONNX at: /Users/saurabh/facerecog/models/minifasnet.onnx
+# Source: Silent-Face Anti-Spoofing (https://github.com/minivision-ai/Silent-Face-Anti-Spoofing),
+# export the MiniFASNet checkpoint to ONNX and place at: <repo>/models/minifasnet.onnx
 ```
 
 ## 2. Start the embedding service

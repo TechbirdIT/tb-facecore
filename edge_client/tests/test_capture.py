@@ -16,7 +16,7 @@ from edge_client.store import Store
 def _cfg():
     return EdgeConfig(
         frappe_url="x", site="s", api_key="k", api_secret="s", edge_id="edge-001",
-        camera_index=0, sync_interval=300, threshold=0.45, liveness_threshold=0.6,
+        camera_source=0, sync_interval=300, threshold=0.45, liveness_threshold=0.6,
         min_det_score=0.5, debounce_minutes=2, db_path=":memory:",
     )
 

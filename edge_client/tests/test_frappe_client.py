@@ -32,8 +32,21 @@ def test_post_checkin_omits_log_type(mock_post):
 
 
 @patch("edge_client.frappe_client.requests.post")
-def test_post_checkin_raises_on_error(mock_post):
+def test_post_checkin_raises_rejected_on_4xx(mock_post):
     mock_post.return_value = MagicMock(status_code=417, text="boom")
     import pytest
-    with pytest.raises(RuntimeError):
+
+    from edge_client.frappe_client import CheckinRejectedError
+    with pytest.raises(CheckinRejectedError):
         _client().post_checkin("D1", "2026-01-01 09:00:00", "edge-001")
+
+
+@patch("edge_client.frappe_client.requests.post")
+def test_post_checkin_raises_runtime_on_5xx(mock_post):
+    mock_post.return_value = MagicMock(status_code=500, text="boom")
+    import pytest
+
+    from edge_client.frappe_client import CheckinRejectedError
+    with pytest.raises(RuntimeError) as exc:
+        _client().post_checkin("D1", "2026-01-01 09:00:00", "edge-001")
+    assert not isinstance(exc.value, CheckinRejectedError)

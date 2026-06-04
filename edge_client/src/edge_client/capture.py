@@ -1,4 +1,4 @@
-"""Per-frame recognition core and the OpenCV capture loop."""
+"""Per-frame recognition core and the capture loop."""
 
 from __future__ import annotations
 
@@ -46,34 +46,31 @@ def process_frame(
 def run_capture(
     analyzer, client, store, cfg, model_version: str
 ) -> None:  # pragma: no cover
-    """OpenCV read loop. Thin I/O glue around process_frame + periodic sync/flush."""
-    import cv2
-
+    """Capture loop. Thin I/O glue around FrameSource + process_frame + sync."""
+    from edge_client.camera import FrameSource
     from edge_client.debounce import Debouncer
 
     debouncer = Debouncer(cfg.debounce_minutes)
     matcher = sync_faces(client, store, model_version)
     last_sync = time.monotonic()
-    cap = cv2.VideoCapture(cfg.camera_index)
+    source = FrameSource(cfg.camera_source)
+    source.start()
     try:
         while True:
-            ok, frame = cap.read()
-            if not ok:
-                logger.warning("camera read failed; retrying")
-                time.sleep(1.0)
-                if not cap.isOpened():
-                    cap.open(cfg.camera_index)
-                continue
-            process_frame(
-                frame,
-                analyzer,
-                matcher,
-                debouncer,
-                client,
-                store,
-                cfg,
-                now=datetime.now(),
-            )
+            frame = source.read()
+            if frame is None:
+                time.sleep(0.01)  # nothing new; don't spin
+            else:
+                process_frame(
+                    frame,
+                    analyzer,
+                    matcher,
+                    debouncer,
+                    client,
+                    store,
+                    cfg,
+                    now=datetime.now(),
+                )
             if time.monotonic() - last_sync >= cfg.sync_interval:
                 matcher = sync_faces(client, store, model_version)
                 flush_queue(client, store, cfg.edge_id)
@@ -83,4 +80,4 @@ def run_capture(
                     logger.debug("heartbeat failed; will retry next tick")
                 last_sync = time.monotonic()
     finally:
-        cap.release()
+        source.release()

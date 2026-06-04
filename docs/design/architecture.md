@@ -8,7 +8,9 @@
 > Edge devices now post **recognition events** (`face_attendance.api.post_event`) with
 > similarity/liveness scores; Employee Checkins are created server-side with a full audit
 > trail. Added since v1: Face Edge Device registry + heartbeat + stale detection,
-> Face Profile Approval workflow (Approved-only sync), health jobs. Current behavior:
+> Face Profile Approval workflow (Approved-only sync), health jobs, and an employee
+> self-service portal (frappe-ui SPA at `/face`: webcam register, status, rate-limited
+> self-test via `verify_me`). Current behavior:
 > [README](../../README.md) and [operations guide](../operations.md).
 
 ---

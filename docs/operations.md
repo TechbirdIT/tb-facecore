@@ -33,12 +33,18 @@ curl http://127.0.0.1:8080/health   # {"status":"ok",...}
 
 ## 4. Enroll a face
 
-HR → **Employee Face Profile** → New → link employee → upload a clear front-facing photo → Save.
-On save the controller posts the image to the embedding service and stores the 512-d vector.
-A failure (service down, no/multi/low-quality face, blank device id) blocks the save with a message.
+**Self-service:** employees with a linked User (Employee role + `Employee.user_id`) open
+`http://<site>/face` → Register → webcam capture → Submit for Approval. They can re-capture
+while Draft/Rejected, track status, and run a webcam self-test once Approved (rate-limited 5/min).
+
+**HR-managed:** HR → **Employee Face Profile** → New → link employee → upload a clear
+front-facing photo → Save. On save the controller posts the image to the embedding service and
+stores the 512-d vector. A failure (service down, no/multi/low-quality face, blank device id)
+blocks the save with a message.
 
 Then approve the profile via the **Face Profile Approval** workflow (HR Manager approves).
-Only **Approved** profiles are synced to edge devices.
+Only **Approved** profiles are synced to edge devices. Enroll with a photo from the device
+that does the recognizing — cross-device photos (phone vs webcam) lose ~0.1 similarity.
 
 ## 5. Run an edge device
 

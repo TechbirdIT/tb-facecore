@@ -33,7 +33,7 @@ HR uploads an employee photo in Frappe. The face is embedded as a 512-dimensiona
 | `facecore` | Pure AI engine — SCRFD detection + ArcFace 512-d embedding + MiniFASNet liveness. No I/O, no Frappe, no web. |
 | `embedding_service` | FastAPI microservice wrapping facecore. Called by Frappe at enrollment. Keeps InsightFace out of the bench. |
 | `edge_client` | Edge device app. Camera → liveness gate → NumPy cosine match → debounce → post recognition event. Heartbeat per sync tick. SQLite offline queue. |
-| [`tb-face_attendance`](https://github.com/TechbirdIT/tb-face_attendance) | Frappe app (v16, separate repo). Face profiles + approval workflow, edge device registry, recognition event audit trail, sync/event/heartbeat APIs, health jobs, role fixtures. |
+| [`tb-face_attendance`](https://github.com/TechbirdIT/tb-face_attendance) | Frappe app (v16, separate repo). Face profiles + approval workflow, edge device registry, recognition event audit trail, sync/event/heartbeat APIs, health jobs, role fixtures, employee self-service portal (`/face`) with webcam register, status, and rate-limited self-test. |
 
 ## Stack
 
@@ -126,11 +126,17 @@ python -m edge_client.main --config config.yaml
 
 ## Enrollment
 
+Two paths:
+
+**Self-service (employee portal at `/face`):** employees with a linked User account capture their face via webcam, submit for approval, track status, and run a webcam self-test once approved.
+
+**HR-managed (Desk):**
 1. Open Frappe → HR → Employee → open an employee record
 2. Set **Attendance Device ID** (unique string, e.g. `EMP-001`)
 3. Open **Employee Face Profile** → link employee → upload clear front-facing photo → save
 4. Frappe calls embedding service, stores 512-d vector
-5. Approve the profile (**Face Profile Approval** workflow) — only Approved profiles sync to edge devices
+
+Either way, approve the profile (**Face Profile Approval** workflow) — only Approved profiles sync to edge devices. Tip: enroll with a photo from the device that will do the recognizing — phone photos against a webcam cost ~0.1 similarity.
 
 ## Frappe configuration
 

@@ -24,18 +24,33 @@ def sync_faces(client, store, model_version: str) -> Matcher:
     return Matcher(store.all_faces(), model_version=model_version)
 
 
-def flush_queue(client, store) -> None:
-    """Post pending check-ins in order; stop at the first connection failure.
+def flush_queue(client, store, edge_id: str) -> None:
+    """Post pending events in order; stop at first connection failure.
 
-    A validation reject (4xx) is logged with its payload and dropped so one
-    bad item cannot block the queue.
+    4xx rejects are logged and dropped so one bad item cannot block the queue.
+    Legacy checkin_queue rows (pre-event-contract) drain through post_event
+    with zero scores.
     """
-    for item in store.pending_checkins():
+    for item in store.pending_events():
         try:
-            client.post_checkin(item["device_id"], item["timestamp"], item["edge_id"])
+            client.post_event(
+                edge_id, item["device_id"], item["timestamp"],
+                item["similarity"], item["liveness"],
+            )
         except CheckinRejectedError:
-            logger.exception("check-in rejected by server; dropping %s", item)
+            logger.exception("event rejected by server; dropping %s", item)
         except Exception:
             logger.warning("flush stopped; Frappe unreachable")
+            return
+        store.delete_event(item["id"])
+
+    for item in store.pending_checkins():  # legacy queue
+        try:
+            client.post_event(
+                item["edge_id"], item["device_id"], item["timestamp"], 0.0, 0.0
+            )
+        except CheckinRejectedError:
+            logger.exception("legacy check-in rejected; dropping %s", item)
+        except Exception:
             return
         store.delete_checkin(item["id"])

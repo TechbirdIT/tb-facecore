@@ -44,7 +44,7 @@ HR uploads an employee photo in Frappe. The face is embedded as a 512-dimensiona
 | Matching | NumPy cosine similarity (sub-ms, no vector DB needed) |
 | Runtime | ONNX Runtime — CPU on dev, CUDA-switchable on prod |
 | Python | 3.11 for AI stack |
-| Camera | OpenCV — webcam and RTSP/IP cameras |
+| Camera | OpenCV — webcam and RTSP/IP cameras (Hikvision, Dahua/CP Plus, S.vision, any ONVIF; see `edge_client/README.md`) |
 | Offline queue | SQLite — durable across edge restarts |
 
 ## Repository layout
@@ -115,7 +115,7 @@ uvicorn embedding_service.app:app --host 127.0.0.1 --port 8080
 
 ```bash
 cp edge_client/config.example.yaml config.yaml
-# Edit: frappe url, api_key, api_secret, camera_index
+# Edit: frappe url, api_key, api_secret, camera_source
 ```
 
 ### Run edge client

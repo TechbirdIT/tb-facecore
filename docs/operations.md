@@ -50,9 +50,12 @@ that does the recognizing — cross-device photos (phone vs webcam) lose ~0.1 si
 
 ```bash
 cd /Users/saurabh/facerecog && source venv/bin/activate
-cp edge_client/config.example.yaml config.yaml   # fill url/api_key/api_secret/camera_index
+cp edge_client/config.example.yaml config.yaml   # fill url/api_key/api_secret/camera_source
 python -m edge_client.main --config config.yaml --debug
 ```
+
+For IP/CCTV cameras set `edge.camera_source` to the RTSP URL (sub-stream
+preferred) — see `edge_client/README.md` for per-vendor URL patterns.
 
 ## 6. Attendance timing
 

@@ -56,3 +56,16 @@ def test_flush_stops_on_failure(tmp_path):
     client.post_checkin.side_effect = RuntimeError("down")
     flush_queue(client, store)
     assert len(store.pending_checkins()) == 2  # nothing deleted
+
+
+def test_flush_drops_rejected_item_and_continues(tmp_path):
+    from edge_client.frappe_client import CheckinRejectedError
+
+    store = Store(str(tmp_path / "q.sqlite"))
+    store.enqueue_checkin("D1", "2026-01-01 09:00:00", "edge-001")
+    store.enqueue_checkin("D2", "2026-01-01 09:01:00", "edge-001")
+    client = MagicMock()
+    client.post_checkin.side_effect = [CheckinRejectedError("417 duplicate"), None]
+    flush_queue(client, store)
+    assert store.pending_checkins() == []  # rejected item dropped, second posted
+    assert client.post_checkin.call_count == 2

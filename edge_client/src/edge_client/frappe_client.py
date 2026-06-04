@@ -11,6 +11,10 @@ _CHECKIN_METHOD = (
 _TIMEOUT = 10
 
 
+class CheckinRejectedError(RuntimeError):
+    """Check-in permanently rejected by the server (4xx validation)."""
+
+
 class FrappeClient:
     def __init__(self, url: str, api_key: str, api_secret: str) -> None:
         # Token auth + full base URL identify the site; no `site` arg needed.
@@ -45,5 +49,9 @@ class FrappeClient:
             headers=self.headers,
             timeout=_TIMEOUT,
         )
+        if 400 <= resp.status_code < 500:
+            raise CheckinRejectedError(
+                f"checkin rejected: {resp.status_code} {resp.text}"
+            )
         if resp.status_code != 200:
             raise RuntimeError(f"checkin failed: {resp.status_code} {resp.text}")

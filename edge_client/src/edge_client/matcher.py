@@ -3,8 +3,11 @@
 from __future__ import annotations
 
 import json
+import logging
 
 import numpy as np
+
+logger = logging.getLogger(__name__)
 
 
 class Matcher:
@@ -36,5 +39,6 @@ class Matcher:
         idx = int(np.argmax(sims))
         score = float(sims[idx])
         if score < threshold:
+            logger.debug("best score %.3f below threshold %.2f", score, threshold)
             return None
         return self.device_ids[idx], score

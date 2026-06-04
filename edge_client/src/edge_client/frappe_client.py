@@ -1,13 +1,12 @@
-"""HTTP client for the Frappe sync endpoint and native check-in."""
+"""HTTP client for the Frappe sync, event, and heartbeat endpoints."""
 
 from __future__ import annotations
 
 import requests
 
 _SYNC_METHOD = "face_attendance.api.get_face_data"
-_CHECKIN_METHOD = (
-    "hrms.hr.doctype.employee_checkin.employee_checkin.add_log_based_on_employee_field"
-)
+_EVENT_METHOD = "face_attendance.api.post_event"
+_HEARTBEAT_METHOD = "face_attendance.api.heartbeat"
 _TIMEOUT = 10
 
 
@@ -36,22 +35,43 @@ class FrappeClient:
         rows: list[dict] = resp.json()["message"]
         return rows
 
-    def post_checkin(self, device_id: str, timestamp: str, edge_id: str) -> None:
-        # log_type omitted so Frappe derives IN/OUT from shift rules.
+    def post_event(
+        self,
+        edge_id: str,
+        attendance_device_id: str,
+        timestamp: str,
+        similarity: float,
+        liveness: float,
+    ) -> None:
         data = {
-            "employee_field_value": device_id,
-            "timestamp": timestamp,
             "device_id": edge_id,
+            "attendance_device_id": attendance_device_id,
+            "event_time": timestamp,
+            "similarity": similarity,
+            "liveness": liveness,
         }
         resp = requests.post(
-            f"{self.base}/api/method/{_CHECKIN_METHOD}",
+            f"{self.base}/api/method/{_EVENT_METHOD}",
             data=data,
             headers=self.headers,
             timeout=_TIMEOUT,
         )
         if 400 <= resp.status_code < 500:
             raise CheckinRejectedError(
-                f"checkin rejected: {resp.status_code} {resp.text}"
+                f"event rejected: {resp.status_code} {resp.text}"
             )
         if resp.status_code != 200:
-            raise RuntimeError(f"checkin failed: {resp.status_code} {resp.text}")
+            raise RuntimeError(f"event failed: {resp.status_code} {resp.text}")
+
+    def heartbeat(self, edge_id: str, app_version: str | None = None) -> None:
+        data = {"device_id": edge_id}
+        if app_version:
+            data["app_version"] = app_version
+        resp = requests.post(
+            f"{self.base}/api/method/{_HEARTBEAT_METHOD}",
+            data=data,
+            headers=self.headers,
+            timeout=_TIMEOUT,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"heartbeat failed: {resp.status_code}")

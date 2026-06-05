@@ -490,6 +490,18 @@ with new ones. Run the **"Face Profiles Needing Reenrollment"** report (HR
 module) — it lists profiles whose `model_version` differs from the current
 service — and re-enroll those employees.
 
+## Capacity
+
+Single-edge-device reference numbers. **TBD entries must be measured before first
+customer demo** (use the RTSP test rig in this guide + `rtk proxy time` on a
+known-length event burst).
+
+| Metric | Value | How measured |
+|---|---|---|
+| Recognition throughput | TBD fps sustained | edge_client, 1 RTSP stream, M-series MBP CPU |
+| Enrolled profiles per edge | TBD | sync + in-memory match table size |
+| Event burst drain | TBD events/min | offline queue flush against local bench |
+
 ## References
 
 - Architecture & design decisions: [`docs/design/architecture.md`](design/architecture.md)

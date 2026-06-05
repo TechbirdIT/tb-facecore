@@ -158,4 +158,4 @@ v1 handles one camera per edge. Multi-camera edges (different angles, entrance/e
 
 - facecore: `../facecore/README.md`
 - Architecture & design decisions: `../docs/design/architecture.md`
-- Operator guide: `../docs/operations.md`
+- Setup & operations how-to: `../docs/how-to.md`

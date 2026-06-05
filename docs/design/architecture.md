@@ -14,7 +14,7 @@
 > Edge cameras: config key is now `edge.camera_source` (webcam index or RTSP/IP-camera
 > URL, TCP transport, auto-reconnect); `camera_index` remains accepted as a legacy alias.
 > Current behavior:
-> [README](../../README.md) and [operations guide](../operations.md).
+> [README](../../README.md) and [how-to guide](../how-to.md).
 
 ---
 

@@ -63,19 +63,18 @@ tb-facecore/
 │   └── pyproject.toml
 ├── docs/
 │   ├── design/architecture.md  # Full architecture & design decisions
-│   └── operations.md           # Operator guide
+│   └── how-to.md               # Complete setup & operations guide
 └── models/                     # Downloaded AI models (gitignored, ~310MB)
 ```
 
 ## Setup
 
-### Requirements
+Full walkthrough — prerequisites, models, embedding service, Frappe configuration,
+enrollment, edge client (webcam and RTSP/IP cameras), local RTSP test rig,
+troubleshooting, and production deployment — lives in
+**[docs/how-to.md](docs/how-to.md)**.
 
-- Frappe bench v16 with ERPNext + HRMS and [tb-face_attendance](https://github.com/TechbirdIT/tb-face_attendance) installed
-- Python 3.11 (AI stack venv)
-- Webcam or RTSP IP camera
-
-### Install AI stack
+Quickstart (AI stack only):
 
 ```bash
 git clone https://github.com/TechbirdIT/tb-facecore
@@ -89,62 +88,7 @@ pip install -e embedding_service/
 pip install -e edge_client/
 ```
 
-### Install Frappe app
-
-```bash
-cd ~/frappe-bench
-bench get-app https://github.com/TechbirdIT/tb-face_attendance
-bench --site site1.localhost install-app face_attendance
-bench --site site1.localhost migrate
-```
-
-### Download models (once, ~310 MB)
-
-```bash
-python -c "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_l').prepare(ctx_id=0)"
-```
-
-### Start embedding service
-
-```bash
-export EMBEDDING_SERVICE_SECRET=<secret>   # must match Face Recognition Settings
-uvicorn embedding_service.app:app --host 127.0.0.1 --port 8080
-```
-
-### Configure edge client
-
-```bash
-cp edge_client/config.example.yaml config.yaml
-# Edit: frappe url, api_key, api_secret, camera_source
-```
-
-### Run edge client
-
-```bash
-python -m edge_client.main --config config.yaml
-```
-
-## Enrollment
-
-Two paths:
-
-**Self-service (employee portal at `/face`):** employees with a linked User account capture their face via webcam, submit for approval, track status, and run a webcam self-test once approved.
-
-**HR-managed (Desk):**
-1. Open Frappe → HR → Employee → open an employee record
-2. Set **Attendance Device ID** (unique string, e.g. `EMP-001`)
-3. Open **Employee Face Profile** → link employee → upload clear front-facing photo → save
-4. Frappe calls embedding service, stores 512-d vector
-
-Either way, approve the profile (**Face Profile Approval** workflow) — only Approved profiles sync to edge devices. Tip: enroll with a photo from the device that will do the recognizing — phone photos against a webcam cost ~0.1 similarity.
-
-## Frappe configuration
-
-1. Open **Shift Type** → enable **Auto Attendance**
-2. Set **Process Attendance After** to today
-3. Assign employees to a shift (Shift Assignment or Employee default shift)
-4. Add the **"Face Edge Device"** role to the API user (created via HR → API Access)
-5. Create a **Face Edge Device** record whose Device ID matches `edge.id` in the client config — events and heartbeats from unregistered devices are rejected
+Then follow [docs/how-to.md](docs/how-to.md) from section 4 (models) onward.
 
 ## Security
 

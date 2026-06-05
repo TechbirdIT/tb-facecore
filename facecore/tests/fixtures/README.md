@@ -11,7 +11,7 @@ small face JPEGs here, supplied by you with consent. Keep each < 200 KB.
 | `printed_photo.jpg` | A photo of a printed/screen face (spoof case). |
 
 Run model-backed tests (requires buffalo_l pack + `models/minifasnet.onnx`,
-see `docs/operations.md`):
+see `docs/how-to.md`):
 
 ```bash
 FACECORE_RUN_INTEGRATION=1 pytest facecore/tests/test_integration.py -v

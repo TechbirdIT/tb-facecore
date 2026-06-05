@@ -14,7 +14,7 @@ class EdgeConfig:
     api_key: str
     api_secret: str
     edge_id: str
-    camera_index: int
+    camera_source: int | str
     sync_interval: int
     threshold: float
     liveness_threshold: float
@@ -32,7 +32,11 @@ def load_config(path: str) -> EdgeConfig:
         api_key=raw["frappe"]["api_key"],
         api_secret=raw["frappe"]["api_secret"],
         edge_id=raw["edge"]["id"],
-        camera_index=raw["edge"]["camera_index"],
+        camera_source=(
+            raw["edge"]["camera_source"]
+            if "camera_source" in raw["edge"]
+            else raw["edge"]["camera_index"]  # legacy key
+        ),
         sync_interval=raw["edge"]["sync_interval"],
         threshold=raw["matching"]["threshold"],
         liveness_threshold=raw["matching"]["liveness_threshold"],

@@ -9,7 +9,12 @@ frappe:
 
 edge:
   id: "edge-001"  # unique identifier for this edge device
-  camera_index: 0  # 0 = default webcam; 1+ = external camera or RTSP URL
+  # Webcam index (0 = built-in) or RTSP URL for IP/CCTV cameras, e.g.:
+  #   Hikvision (+ OEMs): "rtsp://user:pass@<ip>:554/Streaming/Channels/102"
+  #   Dahua / CP Plus:    "rtsp://user:pass@<ip>:554/cam/realmonitor?channel=1&subtype=1"
+  #   S.vision:           "rtsp://<ip>/ch1_0.264"
+  # Use the camera's SUB-stream (lower resolution) — detection doesn't need 4MP.
+  camera_source: 0
   sync_interval: 300  # seconds; how often to pull embeddings from Frappe
 
 matching:

@@ -10,7 +10,10 @@
 > trail. Added since v1: Face Edge Device registry + heartbeat + stale detection,
 > Face Profile Approval workflow (Approved-only sync), health jobs, and an employee
 > self-service portal (frappe-ui SPA at `/face`: webcam register, status, rate-limited
-> self-test via `verify_me`). Current behavior:
+> self-test via `verify_me`).
+> Edge cameras: config key is now `edge.camera_source` (webcam index or RTSP/IP-camera
+> URL, TCP transport, auto-reconnect); `camera_index` remains accepted as a legacy alias.
+> Current behavior:
 > [README](../../README.md) and [operations guide](../operations.md).
 
 ---

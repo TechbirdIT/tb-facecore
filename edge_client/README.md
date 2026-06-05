@@ -36,13 +36,37 @@ frappe:
 
 edge:
   id: edge-001  # unique per device
-  camera_index: 0  # 0 = default webcam; rtsp://... for IP cameras
+  camera_source: 0  # webcam index or RTSP URL (legacy camera_index accepted)
   sync_interval: 300  # pull embeddings every 5 min
 
 matching:
   threshold: 0.45  # cosine similarity [0.0, 1.0]
   liveness_threshold: 0.6  # anti-spoof score
 ```
+
+## IP / CCTV cameras
+
+Set `edge.camera_source` to the camera's RTSP URL (string) instead of a webcam
+index. Any RTSP-capable camera works — that covers effectively every CCTV/IP
+camera sold today (ONVIF Profile S devices are RTSP underneath).
+
+| Vendor | RTSP URL pattern |
+|---|---|
+| Hikvision (and OEM rebrands) | `rtsp://user:pass@<ip>:554/Streaming/Channels/102` |
+| Dahua / CP Plus | `rtsp://user:pass@<ip>:554/cam/realmonitor?channel=1&subtype=1` |
+| S.vision | `rtsp://<ip>/ch1_0.264` |
+| Uniview | `rtsp://user:pass@<ip>:554/unicast/c1/s1/live` |
+| Anything else | Check the camera web UI / [iSpy camera database](https://www.ispyconnect.com/cameras) |
+
+Tips:
+
+- Prefer the **sub-stream** (`102`, `subtype=1`, `s1`) — lower resolution is
+  enough for face detection and saves CPU.
+- Transport is forced to **TCP** (`OPENCV_FFMPEG_CAPTURE_OPTIONS=rtsp_transport;tcp`)
+  unless you set that env var yourself; UDP drops frames and kills the decoder.
+- Wired Ethernet beats Wi-Fi for stream stability.
+- On stream drop the client reconnects automatically (1 s → 30 s exponential
+  backoff); recognitions queue offline as usual if Frappe is unreachable.
 
 ## Running
 

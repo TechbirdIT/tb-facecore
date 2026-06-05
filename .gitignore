@@ -19,6 +19,7 @@ models/
 *.sqlite
 *.db
 config.yaml
+config.*.yaml
 
 # OS
 .DS_Store

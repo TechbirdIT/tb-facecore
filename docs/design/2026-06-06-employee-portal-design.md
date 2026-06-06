@@ -63,7 +63,7 @@ Old `pages/Register.vue`, `pages/Status.vue` deleted.
 | `face_attendance.portal.register_face` | POST `{image_base64, consent: 1}` | wizard step 4 |
 | `face_attendance.portal.submit_for_approval` | POST | wizard step 4 (chained) |
 | `face_attendance.portal.revoke_my_consent` | POST | RevokeConfirm |
-| `face_attendance.portal.self_test` | POST `{image_base64}` | SelfTest |
+| `face_attendance.portal.verify_me` | POST `{image_base64}` | SelfTest |
 
 `get_my_status` must expose consent fields (`consent_on`, `consent_text_version`) and
 settings consent text for the wizard. If missing from current response, the consent

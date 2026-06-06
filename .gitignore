@@ -29,3 +29,8 @@ CLAUDE.md
 .remember/
 docs/superpowers/
 .e2e/
+
+# agent tooling (local)
+.agents/
+.claude/
+skills-lock.json

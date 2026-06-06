@@ -104,12 +104,12 @@ Route guard: redirect to Home unless state in {none, Draft, Rejected, Revoked}.
 
 ### History (`/history`)
 
-- Month picker (default current month; back arrow months).
-- Summary cards: days present, avg in-time — from month-summary API data.
-- Day-grouped list: date header, IN/OUT pairs with time + device. Empty state.
-- Month summary API currently returns current month only — picker past months show
-  check-ins from the 30-day list grouped client-side; summary cards show only for
-  current month. (No backend change; note in UI.)
+- "This month" summary cards: days present, avg in-time — from month-summary API.
+- "Last 30 days" day-grouped list: date header, IN/OUT pairs with time + device.
+  Empty state.
+- No month picker: backend serves current-month summary + 30-day checkins only;
+  a picker over that data would be a fake affordance. Revisit if history-range
+  API lands later.
 
 ### Profile (`/profile`)
 

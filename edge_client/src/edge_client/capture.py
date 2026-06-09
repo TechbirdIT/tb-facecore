@@ -17,30 +17,60 @@ except PackageNotFoundError:  # editable/dev install
 logger = logging.getLogger(__name__)
 
 
+def _needs_recognition(track, cfg, now: datetime) -> bool:
+    """Recognize a new track once; re-verify periodically to catch id-swaps.
+
+    IoU tracking is appearance-blind: under occlusion/crossing a track can keep
+    its id but now frame a different person. Re-embedding every reverify_seconds
+    bounds how long a swapped identity can persist, without paying the embedding
+    cost every frame.
+    """
+    if track.last_verified is None:
+        return True
+    return (now - track.last_verified).total_seconds() >= cfg.reverify_seconds
+
+
 def process_frame(
-    frame, analyzer, matcher, debouncer, client, store, cfg, now: datetime
+    frame, analyzer, matcher, tracker, debouncer, client, store, cfg, now: datetime
 ) -> None:
-    """Handle one frame: detect → liveness → match → debounce → event/enqueue."""
-    for face in analyzer.analyze(frame):
-        if face.liveness_score < cfg.liveness_threshold:
-            logger.debug("liveness %.2f below threshold; skipping", face.liveness_score)
+    """One frame: detect → track → (embed+match once per track / re-verify) →
+    debounce → event/enqueue.
+
+    Detection runs every frame (cheap); the expensive embedding + match run only
+    for new or due-for-re-verification tracks, not for every face every frame.
+    """
+    boxes = analyzer.detect(frame)
+    for track, idx in tracker.update([b.bbox for b in boxes]):
+        if _needs_recognition(track, cfg, now):
+            face = boxes[idx]
+            live = analyzer.liveness(frame, face.bbox)
+            track.last_verified = now
+            track.last_liveness = live
+            if live < cfg.liveness_threshold:
+                track.spoof = True
+                track.identity = None
+                logger.debug("track %d liveness %.2f below threshold", track.id, live)
+                continue
+            track.spoof = False
+            track.identity = matcher.match(analyzer.embed(frame, face), cfg.threshold)
+
+        if track.identity is None:
             continue
-        result = matcher.match(face.embedding, threshold=cfg.threshold)
-        if result is None:
-            continue
-        device_id, score = result
+        device_id, score = track.identity
         if not debouncer.allow(device_id, now):
-            logger.debug("debounced %s", device_id)
+            logger.debug("debounced %s (track %d)", device_id, track.id)
             continue
         timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
         try:
             client.post_event(
-                cfg.edge_id, device_id, timestamp, score, face.liveness_score
+                cfg.edge_id, device_id, timestamp, score, track.last_liveness
             )
-            logger.info("event posted for %s (score %.3f)", device_id, score)
+            logger.info(
+                "event posted for %s (score %.3f, track %d)", device_id, score, track.id
+            )
         except Exception:
             logger.warning("event post failed for %s; enqueueing offline", device_id)
-            store.enqueue_event(device_id, timestamp, score, face.liveness_score)
+            store.enqueue_event(device_id, timestamp, score, track.last_liveness)
 
 
 def run_capture(
@@ -49,8 +79,12 @@ def run_capture(
     """Capture loop. Thin I/O glue around FrameSource + process_frame + sync."""
     from edge_client.camera import FrameSource, build_ffmpeg_options
     from edge_client.debounce import Debouncer
+    from edge_client.tracker import Tracker
 
     debouncer = Debouncer(cfg.debounce_minutes)
+    tracker = Tracker(
+        iou_threshold=cfg.track_iou_threshold, max_misses=cfg.track_max_misses
+    )
     matcher = sync_faces(client, store, model_version)
     last_sync = time.monotonic()
     ffmpeg_options = build_ffmpeg_options(
@@ -68,6 +102,7 @@ def run_capture(
                     frame,
                     analyzer,
                     matcher,
+                    tracker,
                     debouncer,
                     client,
                     store,

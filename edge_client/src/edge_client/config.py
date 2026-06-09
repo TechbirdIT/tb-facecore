@@ -27,6 +27,11 @@ class EdgeConfig:
     rtsp_transport: str = "tcp"
     rtsp_timeout_seconds: float = 10.0
     ffmpeg_capture_options: str | None = None
+    # Tracking: detection runs every frame; a face is embedded + matched once per
+    # track, then re-verified every reverify_seconds to catch IoU id-swaps.
+    track_iou_threshold: float = 0.3
+    track_max_misses: int = 15
+    reverify_seconds: float = 30.0
 
 
 def load_config(path: str) -> EdgeConfig:
@@ -52,4 +57,7 @@ def load_config(path: str) -> EdgeConfig:
         rtsp_transport=raw["edge"].get("rtsp_transport", "tcp"),
         rtsp_timeout_seconds=raw["edge"].get("rtsp_timeout_seconds", 10.0),
         ffmpeg_capture_options=raw["edge"].get("ffmpeg_capture_options"),
+        track_iou_threshold=raw.get("tracking", {}).get("iou_threshold", 0.3),
+        track_max_misses=raw.get("tracking", {}).get("max_misses", 15),
+        reverify_seconds=raw.get("tracking", {}).get("reverify_seconds", 30.0),
     )

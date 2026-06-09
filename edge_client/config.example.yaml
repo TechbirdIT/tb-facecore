@@ -33,6 +33,13 @@ matching:
   min_det_score: 0.5  # detector confidence threshold
   debounce_minutes: 2  # suppress repeat check-ins within N minutes
 
+tracking:
+  # Detection runs every frame; a face is embedded + matched once per track and
+  # re-verified periodically — instead of re-recognizing every frame.
+  iou_threshold: 0.3      # min IoU to associate a detection with an existing track
+  max_misses: 15          # drop a track after this many consecutive unmatched frames
+  reverify_seconds: 30    # re-embed/re-match a tracked face this often (id-swap guard)
+
 offline:
   db_path: "/var/lib/edge_client/queue.sqlite"  # offline queue storage
 

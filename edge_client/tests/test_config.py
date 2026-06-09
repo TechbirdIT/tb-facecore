@@ -193,3 +193,47 @@ def test_rtsp_options_parsed(tmp_path):
     assert cfg.rtsp_transport == "udp"
     assert cfg.rtsp_timeout_seconds == 5
     assert cfg.ffmpeg_capture_options == "rtsp_transport;tcp|timeout;5000000"
+
+
+def test_tracking_defaults_when_section_absent(tmp_path):
+    path = _write(
+        tmp_path,
+        """
+        frappe: {url: u, site: s, api_key: k, api_secret: sec}
+        edge: {id: e, camera_source: 0, sync_interval: 300}
+        matching:
+          threshold: 0.45
+          liveness_threshold: 0.6
+          min_det_score: 0.5
+          debounce_minutes: 2
+        offline: {db_path: /tmp/q.sqlite}
+    """,
+    )
+    cfg = load_config(path)
+    assert cfg.track_iou_threshold == 0.3
+    assert cfg.track_max_misses == 15
+    assert cfg.reverify_seconds == 30.0
+
+
+def test_tracking_section_parsed(tmp_path):
+    path = _write(
+        tmp_path,
+        """
+        frappe: {url: u, site: s, api_key: k, api_secret: sec}
+        edge: {id: e, camera_source: 0, sync_interval: 300}
+        matching:
+          threshold: 0.45
+          liveness_threshold: 0.6
+          min_det_score: 0.5
+          debounce_minutes: 2
+        tracking:
+          iou_threshold: 0.5
+          max_misses: 30
+          reverify_seconds: 60
+        offline: {db_path: /tmp/q.sqlite}
+    """,
+    )
+    cfg = load_config(path)
+    assert cfg.track_iou_threshold == 0.5
+    assert cfg.track_max_misses == 30
+    assert cfg.reverify_seconds == 60

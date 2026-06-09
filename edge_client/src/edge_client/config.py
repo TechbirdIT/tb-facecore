@@ -21,6 +21,12 @@ class EdgeConfig:
     min_det_score: float
     debounce_minutes: int
     db_path: str
+    # RTSP-only knobs; ignored for webcam (int) sources. Defaults give a safe
+    # TCP + 10s socket timeout so an unreachable camera reconnects rather than
+    # hangs. ffmpeg_capture_options, if set, overrides transport/timeout verbatim.
+    rtsp_transport: str = "tcp"
+    rtsp_timeout_seconds: float = 10.0
+    ffmpeg_capture_options: str | None = None
 
 
 def load_config(path: str) -> EdgeConfig:
@@ -43,4 +49,7 @@ def load_config(path: str) -> EdgeConfig:
         min_det_score=raw["matching"]["min_det_score"],
         debounce_minutes=raw["matching"]["debounce_minutes"],
         db_path=raw["offline"]["db_path"],
+        rtsp_transport=raw["edge"].get("rtsp_transport", "tcp"),
+        rtsp_timeout_seconds=raw["edge"].get("rtsp_timeout_seconds", 10.0),
+        ffmpeg_capture_options=raw["edge"].get("ffmpeg_capture_options"),
     )

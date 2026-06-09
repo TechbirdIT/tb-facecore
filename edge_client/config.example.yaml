@@ -17,6 +17,16 @@ edge:
   camera_source: 0
   sync_interval: 300  # seconds; how often to pull embeddings from Frappe
 
+  # --- RTSP options (ignored when camera_source is a webcam index) ---
+  rtsp_transport: "tcp"        # tcp (default, reliable) | udp (clean LAN only)
+  rtsp_timeout_seconds: 10     # socket I/O timeout; an unreachable camera then
+                               # reconnects (with backoff) instead of hanging.
+                               # 0 disables the timeout.
+  # Escape hatch: set the raw OPENCV_FFMPEG_CAPTURE_OPTIONS string verbatim and
+  # the two knobs above are ignored. Use if your FFmpeg build spells the socket
+  # timeout 'timeout' instead of 'stimeout':
+  # ffmpeg_capture_options: "rtsp_transport;tcp|timeout;10000000"
+
 matching:
   threshold: 0.45  # cosine similarity threshold [0.0, 1.0]
   liveness_threshold: 0.6  # spoof probability threshold

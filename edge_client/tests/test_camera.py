@@ -1,7 +1,14 @@
 # edge_client/tests/test_camera.py
 import os
 
-from edge_client.camera import _BACKOFF_CAP, _BACKOFF_START, FrameSource
+from edge_client.camera import (
+    _BACKOFF_CAP,
+    _BACKOFF_START,
+    FrameSource,
+    _mask_source,
+    build_ffmpeg_options,
+    is_rtsp,
+)
 
 
 class FakeCap:
@@ -29,10 +36,12 @@ class ForeverCap:
         pass
 
 
-def _source(caps, source=0):
+def _source(caps, source=0, ffmpeg_options=None):
     """FrameSource over a scripted sequence of capture objects; no sleeping."""
     it = iter(caps)
-    src = FrameSource(source, open_fn=lambda s: next(it))
+    src = FrameSource(
+        source, open_fn=lambda s: next(it), ffmpeg_options=ffmpeg_options
+    )
     src._sleep = lambda seconds: None  # don't wait in unit tests
     return src
 
@@ -142,3 +151,58 @@ def test_release_only_releases_cap_when_thread_stopped():
     src = FrameSource(0, open_fn=lambda s: cap)
     src.release()  # never started → caller owns cap
     assert cap.released is True
+
+
+# --- RTSP options / helpers ---
+
+
+def test_is_rtsp():
+    assert is_rtsp("rtsp://cam.local:554/stream") is True
+    assert is_rtsp("rtsps://cam.local/stream") is True  # startswith("rtsp")
+    assert is_rtsp(0) is False
+    assert is_rtsp("/dev/video0") is False
+
+
+def test_build_ffmpeg_options_default_tcp_no_timeout():
+    assert build_ffmpeg_options() == "rtsp_transport;tcp"
+
+
+def test_build_ffmpeg_options_with_timeout_microseconds():
+    # 10s -> 10_000_000 microseconds for FFmpeg stimeout
+    assert (
+        build_ffmpeg_options("tcp", 10.0)
+        == "rtsp_transport;tcp|stimeout;10000000"
+    )
+
+
+def test_build_ffmpeg_options_udp_transport():
+    assert build_ffmpeg_options("udp", 0) == "rtsp_transport;udp"
+
+
+def test_build_ffmpeg_options_override_wins_verbatim():
+    raw = "rtsp_transport;tcp|timeout;5000000"
+    assert build_ffmpeg_options("udp", 99, override=raw) == raw
+
+
+def test_frame_source_applies_custom_ffmpeg_options(monkeypatch):
+    monkeypatch.delenv("OPENCV_FFMPEG_CAPTURE_OPTIONS", raising=False)
+    opts = "rtsp_transport;tcp|stimeout;10000000"
+    _source([FakeCap([])], source="rtsp://cam.local:554/stream", ffmpeg_options=opts)
+    assert os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] == opts
+
+
+def test_frame_source_ffmpeg_options_ignored_for_webcam(monkeypatch):
+    monkeypatch.delenv("OPENCV_FFMPEG_CAPTURE_OPTIONS", raising=False)
+    _source([FakeCap([])], source=0, ffmpeg_options="rtsp_transport;udp")
+    assert "OPENCV_FFMPEG_CAPTURE_OPTIONS" not in os.environ
+
+
+def test_mask_source_redacts_rtsp_credentials():
+    masked = _mask_source("rtsp://admin:hunter2@192.168.1.64:554/Streaming/Channels/102")
+    assert masked == "rtsp://***@192.168.1.64:554/Streaming/Channels/102"
+    assert "hunter2" not in masked
+
+
+def test_mask_source_passthrough_when_no_credentials():
+    assert _mask_source("rtsp://cam.local:554/stream") == "rtsp://cam.local:554/stream"
+    assert _mask_source(0) == "0"

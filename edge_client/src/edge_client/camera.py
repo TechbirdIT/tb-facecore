@@ -6,23 +6,62 @@ import logging
 import os
 import threading
 from collections.abc import Callable
-from typing import Any, cast
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
 _BACKOFF_START = 1.0
 _BACKOFF_CAP = 30.0
+_DEFAULT_RTSP_OPTIONS = "rtsp_transport;tcp"
 
 
-def _ensure_tcp_transport(source: int | str) -> None:
-    """Force TCP for RTSP before OpenCV builds the FFmpeg capture.
+def is_rtsp(source: int | str) -> bool:
+    """True for RTSP stream URLs (vs a USB webcam index or a file path)."""
+    return isinstance(source, str) and source.startswith("rtsp")
 
-    UDP drops packets on congested networks and crashes the decoder. The env
-    var is only read at VideoCapture construction, so set it first. setdefault
-    keeps any operator override intact.
+
+def build_ffmpeg_options(
+    transport: str = "tcp",
+    timeout_seconds: float = 0.0,
+    override: str | None = None,
+) -> str:
+    """Build the OPENCV_FFMPEG_CAPTURE_OPTIONS value for an RTSP stream.
+
+    ``transport`` selects rtsp_transport (tcp is correct for almost all cameras;
+    udp only on a clean LAN). ``timeout_seconds`` maps to FFmpeg's ``stimeout``
+    (socket I/O timeout, in microseconds) so a dead or unreachable camera makes
+    ``read()``/open fail and trip the reconnect backoff instead of blocking the
+    capture thread forever. ``override`` short-circuits to a verbatim options
+    string for FFmpeg builds that spell these keys differently (e.g. newer
+    FFmpeg uses ``timeout`` rather than ``stimeout``).
     """
-    if isinstance(source, str) and source.startswith("rtsp"):
-        os.environ.setdefault("OPENCV_FFMPEG_CAPTURE_OPTIONS", "rtsp_transport;tcp")
+    if override:
+        return override
+    parts = [f"rtsp_transport;{transport}"]
+    if timeout_seconds and timeout_seconds > 0:
+        parts.append(f"stimeout;{int(timeout_seconds * 1_000_000)}")
+    return "|".join(parts)
+
+
+def _mask_source(source: int | str) -> str:
+    """Redact credentials in an rtsp://user:pass@host URL for safe logging."""
+    if is_rtsp(source) and "@" in source:
+        scheme, rest = source.split("://", 1)
+        if "@" in rest:
+            return f"{scheme}://***@{rest.split('@', 1)[1]}"
+    return str(source)
+
+
+def _apply_ffmpeg_options(source: int | str, options: str | None) -> None:
+    """Set FFmpeg capture options for RTSP before OpenCV builds the capture.
+
+    The env var is only read at VideoCapture construction, so set it first.
+    setdefault keeps any operator override (exported in the environment) intact.
+    """
+    if is_rtsp(source):
+        os.environ.setdefault(
+            "OPENCV_FFMPEG_CAPTURE_OPTIONS", options or _DEFAULT_RTSP_OPTIONS
+        )
 
 
 class FrameSource:
@@ -34,14 +73,23 @@ class FrameSource:
     """
 
     def __init__(
-        self, source: int | str, open_fn: Callable[[int | str], Any] | None = None
+        self,
+        source: int | str,
+        open_fn: Callable[[int | str], Any] | None = None,
+        *,
+        ffmpeg_options: str | None = None,
     ):
-        _ensure_tcp_transport(source)
+        _apply_ffmpeg_options(source, ffmpeg_options)
         _open_fn: Callable[[int | str], Any]
         if open_fn is None:  # pragma: no cover - real cv2 only outside tests
             import cv2
 
-            _open_fn = cast(Callable[[int | str], Any], cv2.VideoCapture)
+            def _open_fn(s: int | str) -> Any:
+                # Pin the FFmpeg backend for URL streams; let OpenCV pick the
+                # native backend (V4L2/AVFoundation/DSHOW) for webcam indices.
+                if isinstance(s, str):
+                    return cv2.VideoCapture(s, cv2.CAP_FFMPEG)
+                return cv2.VideoCapture(s)
         else:
             _open_fn = open_fn
         self._source = source
@@ -66,7 +114,7 @@ class FrameSource:
             return
         logger.warning(
             "camera read failed (%s); reconnecting in %.0fs",
-            self._source,
+            _mask_source(self._source),
             self._backoff,
         )
         self._cap.release()

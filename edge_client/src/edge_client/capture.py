@@ -47,13 +47,16 @@ def run_capture(
     analyzer, client, store, cfg, model_version: str
 ) -> None:  # pragma: no cover
     """Capture loop. Thin I/O glue around FrameSource + process_frame + sync."""
-    from edge_client.camera import FrameSource
+    from edge_client.camera import FrameSource, build_ffmpeg_options
     from edge_client.debounce import Debouncer
 
     debouncer = Debouncer(cfg.debounce_minutes)
     matcher = sync_faces(client, store, model_version)
     last_sync = time.monotonic()
-    source = FrameSource(cfg.camera_source)
+    ffmpeg_options = build_ffmpeg_options(
+        cfg.rtsp_transport, cfg.rtsp_timeout_seconds, cfg.ffmpeg_capture_options
+    )
+    source = FrameSource(cfg.camera_source, ffmpeg_options=ffmpeg_options)
     source.start()
     try:
         while True:

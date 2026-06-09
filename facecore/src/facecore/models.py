@@ -5,6 +5,25 @@ from typing import Any
 
 
 @dataclass
+class FaceBox:
+    """A detected face location, without the (costly) ArcFace embedding.
+
+    Output of ``FaceAnalyzer.detect()``. ``kps`` are the 5 SCRFD landmarks needed
+    to align the crop before embedding; pass the whole FaceBox to
+    ``FaceAnalyzer.embed()`` to compute the vector on demand. This split lets a
+    tracking loop run detection every frame but embed only once per track."""
+
+    bbox: list[float]
+    """Bounding box [x1, y1, x2, y2] in pixel coordinates."""
+
+    det_score: float
+    """Detector confidence [0.0, 1.0]. SCRFD output."""
+
+    kps: Any | None = None
+    """5x2 facial landmarks (numpy array) for alignment; None if unavailable."""
+
+
+@dataclass
 class DetectedFace:
     """A face detected in an image with embedding and scores."""
 

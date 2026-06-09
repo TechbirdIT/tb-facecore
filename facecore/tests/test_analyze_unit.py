@@ -66,3 +66,77 @@ def test_analyze_rejects_bad_image():
     import pytest
     with pytest.raises(ValueError):
         a.analyze(np.zeros((100, 100), dtype=np.uint8))  # not 3-channel
+
+
+# --- detect() / embed() / liveness() split ---
+
+
+class _FakeDet:
+    def __init__(self, bboxes, kpss):
+        self.bboxes, self.kpss = bboxes, kpss
+
+    def detect(self, img, max_num=0, metric="default"):
+        return self.bboxes, self.kpss
+
+
+class _FakeRec:
+    def __init__(self):
+        self.called_with = None
+
+    def get(self, img, face):
+        self.called_with = face
+        face.embedding = np.array([0.5] * 512, dtype=np.float32)
+
+
+class _FakeAppDM:
+    def __init__(self, bboxes, kpss):
+        self.det_model = _FakeDet(bboxes, kpss)
+        self.models = {"recognition": _FakeRec()}
+
+
+def _analyzer_dm(bboxes, kpss, det_thresh=0.5, liveness=0.8):
+    a = FaceAnalyzer.__new__(FaceAnalyzer)
+    a.det_thresh = det_thresh
+    a.liveness_thresh = 0.5
+    a._app = _FakeAppDM(bboxes, kpss)
+    a._liveness = _FakeLiveness(liveness)
+    return a
+
+
+def test_detect_returns_faceboxes_and_filters_below_thresh():
+    from facecore.models import FaceBox
+
+    bboxes = np.array([[0, 0, 10, 10, 0.9], [0, 0, 5, 5, 0.3]], dtype=np.float32)
+    kpss = np.zeros((2, 5, 2), dtype=np.float32)
+    out = _analyzer_dm(bboxes, kpss).detect(np.zeros((100, 100, 3), dtype=np.uint8))
+    assert len(out) == 1  # second box below det_thresh is dropped
+    assert isinstance(out[0], FaceBox)
+    assert out[0].det_score == 0.9
+    assert out[0].bbox == [0.0, 0.0, 10.0, 10.0]
+    assert out[0].kps is not None
+
+
+def test_embed_runs_recognition_and_returns_512():
+    from facecore.models import FaceBox
+
+    a = _analyzer_dm(np.zeros((0, 5), np.float32), np.zeros((0, 5, 2), np.float32))
+    fb = FaceBox(bbox=[0, 0, 10, 10], det_score=0.9, kps=np.zeros((5, 2), np.float32))
+    emb = a.embed(np.zeros((100, 100, 3), dtype=np.uint8), fb)
+    assert len(emb) == 512
+    assert a._app.models["recognition"].called_with is not None
+
+
+def test_embed_requires_kps():
+    import pytest
+
+    from facecore.models import FaceBox
+
+    a = _analyzer_dm(np.zeros((0, 5), np.float32), None)
+    fb = FaceBox(bbox=[0, 0, 10, 10], det_score=0.9, kps=None)
+    with pytest.raises(ValueError):
+        a.embed(np.zeros((100, 100, 3), dtype=np.uint8), fb)
+
+
+def test_liveness_delegates_to_detector():
+    a = _analyzer_dm(np.zeros((0, 5), np.float32), None, liveness=0.73)
+    assert a.liveness(np.zeros((100, 100, 3), dtype=np.uint8), [0, 0, 10, 10]) == 0.73

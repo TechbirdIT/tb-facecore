@@ -110,16 +110,19 @@ python -c "from insightface.app import FaceAnalysis; FaceAnalysis(name='buffalo_
 
 (`ctx_id=-1` = CPU. Use `ctx_id=0` on a CUDA machine.)
 
-**MiniFASNet** (passive liveness / anti-spoofing) is not auto-downloaded. Export
-the checkpoint from
-[Silent-Face Anti-Spoofing](https://github.com/minivision-ai/Silent-Face-Anti-Spoofing)
-to ONNX and place it at:
+**MiniFASNet** (passive liveness / anti-spoofing) also auto-downloads. A pinned,
+pre-converted ONNX (Silent-Face `2.7_80x80_MiniFASNetV2`, verified by SHA-256) is
+fetched to `<repo>/models/minifasnet.onnx` the first time the analyzer starts. To
+prefetch it explicitly during setup:
 
-```
-<repo>/models/minifasnet.onnx
+```bash
+python -m facecore.model_download
 ```
 
-`models/` is gitignored — each machine needs its own copy.
+`models/` is gitignored — each machine downloads its own copy on first use. To use
+a custom liveness model instead, drop your own `minifasnet.onnx` at that path
+(a pre-existing file is never overwritten); it must take a raw 0-255 BGR `1x3x80x80`
+NCHW input and output 3 classes with index 1 = live.
 
 ## 5. Start the embedding service
 

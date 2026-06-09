@@ -6,11 +6,11 @@ import cv2
 import numpy as np
 
 from facecore.liveness import LivenessDetector
+from facecore.model_download import DEFAULT_LIVENESS_PATH, ensure_liveness_model
 from facecore.models import DetectedFace
 
 MODEL_VERSION = "buffalo_l"
-_REPO_ROOT = Path(__file__).resolve().parents[3]
-_DEFAULT_LIVENESS_PATH = _REPO_ROOT / "models" / "minifasnet.onnx"
+_DEFAULT_LIVENESS_PATH = DEFAULT_LIVENESS_PATH
 
 
 class FaceAnalyzer:
@@ -32,10 +32,12 @@ class FaceAnalyzer:
             device: 'cpu' or 'cuda' (requires NVIDIA Container Toolkit in production).
             det_thresh: Detection confidence threshold [0.0, 1.0]. Default 0.5.
             liveness_thresh: Liveness confidence threshold. Default 0.5.
-            liveness_model_path: Path to the MiniFASNet ONNX model.
+            liveness_model_path: Path to the MiniFASNet ONNX model. Auto-downloaded
+                (pinned by SHA-256) on first use if absent.
 
         Note: Models auto-download on first use (~300MB), cached in facerecog/models/.
         """
+        liveness_model_path = ensure_liveness_model(liveness_model_path)
         from insightface.app import FaceAnalysis  # type: ignore[import-untyped]
 
         self.device = device

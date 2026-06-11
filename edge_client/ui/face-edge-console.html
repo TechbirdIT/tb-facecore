@@ -1,0 +1,468 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Face Edge Console — tb-facecore</title>
+<script src="https://unpkg.com/react@18.3.1/umd/react.development.js"
+  integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L"
+  crossorigin="anonymous"></script>
+<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js"
+  integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm"
+  crossorigin="anonymous"></script>
+<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"
+  integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y"
+  crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
+<style>
+  :root{
+    --bg:oklch(0.16 0.02 260); --bg2:oklch(0.19 0.02 260);
+    --panel:oklch(0.22 0.022 260); --panel2:oklch(0.25 0.024 260);
+    --border:oklch(0.32 0.02 260); --border2:oklch(0.40 0.02 260);
+    --text:oklch(0.94 0.01 260); --muted:oklch(0.68 0.02 260); --faint:oklch(0.55 0.02 260);
+    --green:oklch(0.78 0.16 150); --amber:oklch(0.82 0.15 80); --red:oklch(0.66 0.20 22);
+    --brand:oklch(0.74 0.13 230); --brand2:oklch(0.66 0.14 250);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:radial-gradient(1200px 700px at 80% -10%, var(--bg2), var(--bg));
+    color:var(--text); font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .mono{font-family:ui-monospace,"SF Mono",Menlo,Consolas,monospace}
+  button{font:inherit;cursor:pointer;border:0;background:none;color:inherit}
+  input,select{font:inherit}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:var(--border2);border-radius:8px;border:2px solid transparent;background-clip:content-box}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
+  @keyframes scan{0%{transform:translateY(-100%)}100%{transform:translateY(2400%)}}
+  @keyframes pop{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
+  @keyframes slidein{from{transform:translateY(-6px);opacity:0}to{transform:translateY(0);opacity:1}}
+  @keyframes toastin{from{transform:translateY(12px);opacity:0}to{transform:translateY(0);opacity:1}}
+  .evrow{animation:slidein .25s ease}
+  .box{transition:left .7s linear, top .7s linear, width .7s linear, height .7s linear, border-color .3s}
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="text/babel">
+const {useState, useEffect, useRef, useMemo} = React;
+
+const EMPLOYEES = ["Martin Mwangi","Aisha Noor","David Otieno","Grace Wanjiru","Brian Kamau","Faith Chebet"];
+const LS_KEY = "face_edge_console_cfg_v3";
+
+const DEFAULT_CFG = {
+  frappe:{ url:"http://localhost:8002", api_key:"b3131f4b9033d51", api_secret:"830d1b34f0d2115" },
+  cameras:[
+    // preview = a browser-displayable feed of the REAL camera. Two kinds:
+    //   .mjpg  → annotated MJPEG from the edge_client engine (real boxes + IDs)
+    //   .m3u8  → raw HLS passthrough from rtsp-bridge.sh (video only, no boxes)
+    // blank → the tile runs the simulated demo.
+    { id:"edge-001", source:"rtsp://192.168.1.68:8554", area:"Floor 2", preview:"http://127.0.0.1:9101/edge-001.mjpg" },
+    { id:"edge-002", source:"rtsp://192.168.1.69:554/Streaming/Channels/102", area:"Lobby", preview:"" },
+    { id:"edge-003", source:"0", area:"Lab", preview:"" },
+  ],
+  matching:{ threshold:0.45, liveness_threshold:0.6, min_det_score:0.5 },
+  tracking:{ iou_threshold:0.3, max_misses:15, reverify_seconds:30, acquire_fast_seconds:2, acquire_backoff_seconds:1 },
+  sighting_interval_seconds:60,
+  rtsp:{ rtsp_transport:"tcp", rtsp_timeout_seconds:10 },
+};
+
+function loadCfg(){
+  try{ const v = JSON.parse(localStorage.getItem(LS_KEY)); if(v && v.cameras) return v; }catch(e){}
+  return structuredClone(DEFAULT_CFG);
+}
+const rnd=(a,b)=>a+Math.random()*(b-a);
+const pick=a=>a[Math.floor(Math.random()*a.length)];
+const now=()=>new Date();
+const hhmmss=d=>d.toTimeString().slice(0,8);
+
+// ---------- small UI atoms ----------
+function Pill({tone="muted", children, blink}){
+  const tones={ green:"var(--green)", amber:"var(--amber)", red:"var(--red)", brand:"var(--brand)", muted:"var(--faint)" };
+  const c=tones[tone]||tones.muted;
+  return <span style={{display:"inline-flex",alignItems:"center",gap:6,padding:"3px 9px",borderRadius:999,
+      fontSize:12,fontWeight:600,color:c,background:`color-mix(in oklch, ${c} 14%, transparent)`,
+      border:`1px solid color-mix(in oklch, ${c} 35%, transparent)`}}>
+    <span style={{width:7,height:7,borderRadius:99,background:c,animation:blink?"blink 1.1s infinite":"none"}}/>
+    {children}</span>;
+}
+function Field({label, hint, children}){
+  return <label style={{display:"grid",gap:5}}>
+    <span style={{fontSize:12.5,fontWeight:600,color:"var(--muted)"}}>{label}</span>
+    {children}
+    {hint && <span style={{fontSize:11.5,color:"var(--faint)"}}>{hint}</span>}
+  </label>;
+}
+const inputStyle={padding:"9px 11px",borderRadius:9,background:"var(--bg)",color:"var(--text)",
+  border:"1px solid var(--border)",outline:"none",width:"100%"};
+function TextInput(props){ return <input {...props} style={{...inputStyle,...(props.style||{})}}
+  onFocus={e=>e.target.style.borderColor="var(--brand)"} onBlur={e=>e.target.style.borderColor="var(--border)"}/>; }
+function NumInput({value,onChange,step=0.05}){ return <input type="number" step={step} value={value}
+  onChange={e=>onChange(parseFloat(e.target.value))} style={inputStyle}/>; }
+
+// ---------- real HLS video (from rtsp-bridge.sh) ----------
+function HlsVideo({src, onState}){
+  const ref = useRef(null);
+  useEffect(()=>{
+    const v = ref.current; if(!v || !src) return;
+    let hls = null;
+    const fail = ()=> onState && onState("reconnecting");
+    const ok   = ()=> onState && onState("online");
+    if(window.Hls && Hls.isSupported()){
+      // same low-latency profile as the standalone live page: sit ~1 segment
+      // from the edge and speed up to catch back up if we drift.
+      hls = new Hls({ lowLatencyMode:true, liveSyncDurationCount:1, liveMaxLatencyDurationCount:4,
+        maxLiveSyncPlaybackRate:1.6, backBufferLength:2, maxBufferLength:4 });
+      hls.loadSource(src); hls.attachMedia(v);
+      hls.on(Hls.Events.MANIFEST_PARSED, ()=>v.play().catch(()=>{}));
+      hls.on(Hls.Events.ERROR, (e,d)=>{ if(d && d.fatal) fail(); });
+    } else if (v.canPlayType("application/vnd.apple.mpegurl")){
+      v.src = src; v.addEventListener("loadedmetadata", ()=>v.play().catch(()=>{}));
+      v.addEventListener("error", fail);
+    }
+    v.addEventListener("playing", ok);
+    return ()=>{ if(hls) hls.destroy(); };
+  },[src]);
+  return <video ref={ref} muted autoPlay playsInline
+    style={{position:"absolute",inset:0,width:"100%",height:"100%",objectFit:"cover",background:"#000"}}/>;
+}
+
+// ---------- camera tile ----------
+function CameraTile({cam, sim, running}){
+  const offline = !running;
+  const reconnecting = sim && sim.status==="reconnecting";
+  const src = cam.preview || cam.hls || "";               // (hls = legacy field name)
+  const isMjpeg = /\.mjpe?g(\?|$)/i.test(src);            // annotated engine feed
+  const isLive = !!src && !offline && !reconnecting;      // real camera feed
+  return (
+    <div style={{background:"var(--panel)",border:"1px solid var(--border)",borderRadius:14,overflow:"hidden",
+        display:"flex",flexDirection:"column",boxShadow:"0 1px 0 oklch(1 0 0 / 6%) inset"}}>
+      <div style={{display:"flex",alignItems:"center",gap:8,padding:"9px 12px",borderBottom:"1px solid var(--border)"}}>
+        <span className="mono" style={{fontWeight:700}}>{cam.id}</span>
+        <span style={{fontSize:12,color:"var(--faint)"}}>· {cam.area||"—"}</span>
+        <span style={{flex:1}}/>
+        {offline ? <Pill tone="muted">Offline</Pill>
+          : reconnecting ? <Pill tone="amber" blink>Reconnecting</Pill>
+          : <Pill tone="green" blink>Online</Pill>}
+      </div>
+      <div style={{position:"relative",aspectRatio:"16/10",background:
+          isLive?"#000"
+          :offline?"repeating-linear-gradient(45deg,oklch(0.18 0.01 260),oklch(0.18 0.01 260) 10px,oklch(0.2 0.01 260) 10px,oklch(0.2 0.01 260) 20px)"
+                 :"radial-gradient(120% 80% at 50% 0%, oklch(0.26 0.02 250), oklch(0.13 0.015 260))",
+          overflow:"hidden"}}>
+        {offline && <Centered txt="— camera offline —" sub="press Start to begin recognition"/>}
+        {reconnecting && <Centered txt="reconnecting…" sub={`rtsp · ${cam.source.startsWith("rtsp")?"tcp":"local"}`}/>}
+        {isLive && <>
+          {isMjpeg
+            ? <img src={src} alt={cam.id+" live"} style={{position:"absolute",inset:0,
+                width:"100%",height:"100%",objectFit:"cover",background:"#000"}}/>
+            : <HlsVideo src={src}/>}
+          <div style={{position:"absolute",inset:0,opacity:.4,pointerEvents:"none",
+            background:"linear-gradient(transparent 50%, oklch(0.5 0.05 230 / 6%) 50%)",backgroundSize:"100% 4px"}}/>
+          <div style={{position:"absolute",top:8,left:8,display:"flex",gap:6,alignItems:"center",
+            padding:"2px 8px",borderRadius:999,fontSize:11,fontWeight:700,color:"oklch(0.16 0.02 260)",
+            background:"var(--green)"}}>
+            <span style={{width:7,height:7,borderRadius:99,background:"oklch(0.16 0.02 260)",animation:"blink 1.1s infinite"}}/>
+            LIVE</div>
+          <div style={{position:"absolute",bottom:8,right:10,fontSize:10.5,color:"var(--faint)"}} className="mono">
+            {isMjpeg?"real feed · engine boxes":"real feed · HLS (video only)"}</div>
+        </>}
+        {!offline && !reconnecting && !isLive && <>
+          <div style={{position:"absolute",inset:0,opacity:.5,
+            background:"linear-gradient(transparent 50%, oklch(0.5 0.05 230 / 6%) 50%)",backgroundSize:"100% 4px"}}/>
+          <div style={{position:"absolute",left:0,right:0,height:"3%",
+            background:"linear-gradient(oklch(0.8 0.1 230 / 35%),transparent)",animation:"scan 4.5s linear infinite"}}/>
+          {(sim?sim.faces:[]).map(f=>(
+            <div key={f.key} className="box" style={{position:"absolute",left:f.x+"%",top:f.y+"%",
+                width:f.w+"%",height:f.h+"%",borderRadius:5,
+                border:`2px solid ${f.name?"var(--green)":"oklch(0.8 0.04 230 / 75%)"}`,
+                boxShadow:f.name?"0 0 0 1px oklch(0.78 0.16 150 / 25%), 0 0 18px oklch(0.78 0.16 150 / 22%)":"none"}}>
+              {f.name && <div style={{position:"absolute",left:-2,top:-23,whiteSpace:"nowrap",display:"flex",gap:5,
+                  alignItems:"center",animation:"pop .18s ease"}}>
+                <span className="mono" style={{fontSize:11,fontWeight:700,color:"oklch(0.16 0.02 260)",
+                  background:"var(--green)",padding:"2px 6px",borderRadius:5}}>{f.name} · {f.score.toFixed(2)}</span>
+                <span style={{fontSize:10,fontWeight:700,padding:"2px 5px",borderRadius:4,
+                  color:f.liveness>=0.6?"var(--green)":"var(--amber)",
+                  background:`color-mix(in oklch, ${f.liveness>=0.6?"var(--green)":"var(--amber)"} 16%, transparent)`,
+                  border:`1px solid color-mix(in oklch, ${f.liveness>=0.6?"var(--green)":"var(--amber)"} 40%, transparent)`}}>
+                  {f.liveness>=0.6?"LIVE":"CHK"} {f.liveness.toFixed(2)}</span>
+              </div>}
+            </div>
+          ))}
+        </>}
+      </div>
+      <div style={{display:"flex",alignItems:"center",gap:14,padding:"7px 12px",fontSize:12,color:"var(--muted)"}}>
+        <span>fps <b style={{color:"var(--text)"}} className="mono">{offline?"—":(reconnecting?"0":(isLive?"live":(sim?sim.fps:"—")))}</b></span>
+        <span>tracks <b style={{color:"var(--text)"}} className="mono">{offline||reconnecting?0:(isLive?"—":(sim?sim.faces.length:0))}</b></span>
+        <span style={{flex:1}}/>
+        <span className="mono" style={{fontSize:11,color:"var(--faint)",maxWidth:"55%",overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cam.source}</span>
+      </div>
+    </div>
+  );
+}
+function Centered({txt,sub}){
+  return <div style={{position:"absolute",inset:0,display:"grid",placeContent:"center",textAlign:"center",gap:4}}>
+    <div style={{color:"var(--faint)",fontWeight:600,letterSpacing:.3}}>{txt}</div>
+    {sub && <div style={{color:"var(--faint)",fontSize:11.5,opacity:.8}}>{sub}</div>}</div>;
+}
+
+// ---------- events rail ----------
+function EventsRail({events, running}){
+  return <div style={{background:"var(--panel)",border:"1px solid var(--border)",borderRadius:14,
+      display:"flex",flexDirection:"column",minHeight:0}}>
+    <div style={{padding:"11px 14px",borderBottom:"1px solid var(--border)",display:"flex",alignItems:"center",gap:8}}>
+      <b>Recent recognitions</b><span style={{flex:1}}/>
+      <Pill tone={running?"green":"muted"} blink={running}>{running?"live":"idle"}</Pill>
+    </div>
+    <div style={{overflow:"auto",flex:1,padding:"6px 8px"}}>
+      {events.length===0 && <div style={{padding:"28px 12px",textAlign:"center",color:"var(--faint)",fontSize:13}}>
+        No events yet.{running?" Watching cameras…":" Start the engine to begin."}</div>}
+      {events.map(ev=>(
+        <div key={ev.key} className="evrow" style={{display:"grid",gridTemplateColumns:"1fr auto",gap:2,
+            padding:"8px 10px",borderRadius:9,marginBottom:3,background:"var(--bg)"}}>
+          <span style={{fontWeight:600}}>{ev.name}</span>
+          <span className="mono" style={{fontSize:11.5,color:"var(--faint)"}}>{ev.time}</span>
+          <span style={{fontSize:12,color:"var(--muted)"}} className="mono">{ev.cam} · {ev.area}</span>
+          <span style={{fontSize:12,justifySelf:"end"}} className="mono">
+            <span style={{color:"var(--brand)"}}>{ev.score.toFixed(2)}</span>
+            <span style={{color:"var(--faint)"}}> / {ev.liveness.toFixed(2)}</span></span>
+        </div>
+      ))}
+    </div>
+    <div style={{padding:"9px 14px",borderTop:"1px solid var(--border)",fontSize:11.5,color:"var(--faint)"}}>
+      Sightings become <b style={{color:"var(--muted)"}}>presence sessions</b> on the server — hours per area.
+    </div>
+  </div>;
+}
+
+// ---------- config view ----------
+function Group({title, desc, children, cols="repeat(auto-fit,minmax(190px,1fr))"}){
+  return <section style={{background:"var(--panel)",border:"1px solid var(--border)",borderRadius:14,padding:"16px 18px",marginBottom:14}}>
+    <div style={{marginBottom:13}}><h3 style={{margin:0,fontSize:15}}>{title}</h3>
+      {desc && <p style={{margin:"3px 0 0",fontSize:12.5,color:"var(--faint)"}}>{desc}</p>}</div>
+    <div style={{display:"grid",gridTemplateColumns:cols,gap:13}}>{children}</div>
+  </section>;
+}
+function ConfigView({cfg,setCfg,onSave}){
+  const set=(path,val)=>{ const c=structuredClone(cfg); let o=c; const ks=path.split(".");
+    for(let i=0;i<ks.length-1;i++)o=o[ks[i]]; o[ks[ks.length-1]]=val; setCfg(c); };
+  const setCam=(i,k,v)=>{ const c=structuredClone(cfg); c.cameras[i][k]=v; setCfg(c); };
+  const addCam=()=>{ const c=structuredClone(cfg); const n=c.cameras.length+1;
+    c.cameras.push({id:`edge-${String(n).padStart(3,"0")}`,source:"rtsp://",area:"",preview:""}); setCfg(c); };
+  const delCam=i=>{ const c=structuredClone(cfg); c.cameras.splice(i,1); setCfg(c); };
+  return <div>
+    <Group title="Cameras" desc="One row per camera on this machine. They share the loaded face models. Each id must match a Face Edge Device in Frappe. Preview URL: an .mjpg from the edge engine shows real recognition boxes; an .m3u8 shows raw video; blank runs the demo." cols="1fr">
+      <div style={{display:"grid",gap:13}}>
+        {cfg.cameras.map((cam,i)=>(
+          <div key={i} style={{display:"grid",gap:7,padding:"11px 12px",borderRadius:11,
+              border:"1px solid var(--border)",background:"var(--bg)"}}>
+            <div style={{display:"grid",gridTemplateColumns:"150px 1fr 150px 38px",gap:9,alignItems:"center"}}>
+              <TextInput value={cam.id} onChange={e=>setCam(i,"id",e.target.value)} placeholder="edge-001" className="mono"/>
+              <TextInput value={cam.source} onChange={e=>setCam(i,"source",e.target.value)} placeholder="rtsp://… or 0" className="mono"/>
+              <TextInput value={cam.area} onChange={e=>setCam(i,"area",e.target.value)} placeholder="Area (e.g. Floor 2)"/>
+              <button onClick={()=>delCam(i)} title="Remove camera" style={{...inputStyle,width:38,height:38,display:"grid",
+                placeContent:"center",color:"var(--red)",cursor:"pointer"}}>✕</button>
+            </div>
+            <div style={{display:"grid",gridTemplateColumns:"auto 1fr",gap:9,alignItems:"center"}}>
+              <span style={{fontSize:11.5,color:"var(--faint)",fontWeight:600}}>Preview URL</span>
+              <TextInput value={cam.preview||cam.hls||""} onChange={e=>setCam(i,"preview",e.target.value)}
+                placeholder="blank = demo · …:9101/edge-001.mjpg = engine boxes · …/stream.m3u8 = video only"
+                className="mono" style={{fontSize:12.5}}/>
+            </div>
+          </div>
+        ))}
+        <button onClick={addCam} style={{justifySelf:"start",marginTop:2,padding:"8px 13px",borderRadius:9,
+          border:"1px dashed var(--border2)",color:"var(--brand)",fontWeight:600}}>+ Add camera</button>
+      </div>
+    </Group>
+
+    <Group title="Frappe connection" desc="Where recognition events are posted. Use a Face Edge Device API key.">
+      <Field label="Server URL"><TextInput value={cfg.frappe.url} onChange={e=>set("frappe.url",e.target.value)} className="mono"/></Field>
+      <Field label="API key"><TextInput value={cfg.frappe.api_key} onChange={e=>set("frappe.api_key",e.target.value)} className="mono"/></Field>
+      <Field label="API secret"><TextInput type="password" value={cfg.frappe.api_secret} onChange={e=>set("frappe.api_secret",e.target.value)} className="mono"/></Field>
+    </Group>
+
+    <Group title="Matching & liveness" desc="How sure the system must be before it counts a face.">
+      <Field label="Match threshold" hint="cosine similarity 0–1 (higher = stricter)"><NumInput value={cfg.matching.threshold} onChange={v=>set("matching.threshold",v)}/></Field>
+      <Field label="Liveness threshold" hint="reject photos/screens below this"><NumInput value={cfg.matching.liveness_threshold} onChange={v=>set("matching.liveness_threshold",v)}/></Field>
+      <Field label="Min detector score" hint="ignore weak detections"><NumInput value={cfg.matching.min_det_score} onChange={v=>set("matching.min_det_score",v)}/></Field>
+    </Group>
+
+    <Group title="Tracking & sampling" desc="Tracks a face across frames so it is recognized once, not every frame.">
+      <Field label="IoU threshold" hint="how much boxes overlap to be the same track"><NumInput value={cfg.tracking.iou_threshold} onChange={v=>set("tracking.iou_threshold",v)}/></Field>
+      <Field label="Max misses" hint="frames before a track is dropped"><NumInput step={1} value={cfg.tracking.max_misses} onChange={v=>set("tracking.max_misses",v)}/></Field>
+      <Field label="Re-verify (sec)" hint="re-check identity this often (id-swap guard)"><NumInput step={1} value={cfg.tracking.reverify_seconds} onChange={v=>set("tracking.reverify_seconds",v)}/></Field>
+      <Field label="Acquire fast (sec)" hint="retry every frame this long to lock on"><NumInput step={0.5} value={cfg.tracking.acquire_fast_seconds} onChange={v=>set("tracking.acquire_fast_seconds",v)}/></Field>
+      <Field label="Acquire backoff (sec)" hint="then retry unknowns this often"><NumInput step={0.5} value={cfg.tracking.acquire_backoff_seconds} onChange={v=>set("tracking.acquire_backoff_seconds",v)}/></Field>
+      <Field label="Sighting interval (sec)" hint="how often a present person is recorded"><NumInput step={1} value={cfg.sighting_interval_seconds} onChange={v=>set("sighting_interval_seconds",v)}/></Field>
+    </Group>
+
+    <Group title="RTSP" desc="Network camera transport. TCP is reliable; UDP only on a clean LAN.">
+      <Field label="Transport">
+        <select value={cfg.rtsp.rtsp_transport} onChange={e=>set("rtsp.rtsp_transport",e.target.value)} style={inputStyle}>
+          <option value="tcp">tcp</option><option value="udp">udp</option></select></Field>
+      <Field label="Socket timeout (sec)" hint="reconnect instead of hanging"><NumInput step={1} value={cfg.rtsp.rtsp_timeout_seconds} onChange={v=>set("rtsp.rtsp_timeout_seconds",v)}/></Field>
+    </Group>
+
+    <div style={{display:"flex",gap:10,position:"sticky",bottom:0,padding:"12px 0",
+        background:"linear-gradient(transparent, var(--bg) 40%)"}}>
+      <button onClick={onSave} style={{padding:"11px 20px",borderRadius:10,fontWeight:700,
+        background:"var(--brand)",color:"oklch(0.16 0.02 260)"}}>Save configuration</button>
+      <button onClick={()=>setCfg(structuredClone(DEFAULT_CFG))} style={{padding:"11px 18px",borderRadius:10,
+        fontWeight:600,border:"1px solid var(--border)",color:"var(--muted)"}}>Reset to defaults</button>
+    </div>
+  </div>;
+}
+
+// ---------- app ----------
+function App(){
+  const [cfg,setCfg]=useState(loadCfg);
+  const [view,setView]=useState("console");
+  const [engine,setEngine]=useState("stopped"); // stopped | starting | running
+  const [sim,setSim]=useState({});
+  const [events,setEvents]=useState([]);
+  const [toast,setToast]=useState(null);
+  const seq=useRef(0);
+  const running=engine==="running";
+  const synced=12;
+
+  // engine start sequence
+  useEffect(()=>{ if(engine!=="starting") return;
+    const t=setTimeout(()=>setEngine("running"),1900); return ()=>clearTimeout(t); },[engine]);
+
+  // when running, seed per-camera sim
+  useEffect(()=>{
+    if(!running){ setSim({}); return; }
+    const s={}; cfg.cameras.forEach(c=>{ s[c.id]={status:"online",fps:Math.round(rnd(11,15)),faces:[],rc:0}; });
+    setSim(s);
+  },[running, cfg.cameras.length]);
+
+  // simulation tick
+  useEffect(()=>{
+    if(!running) return;
+    const iv=setInterval(()=>{
+      setSim(prev=>{
+        const next={};
+        const newEvents=[];
+        cfg.cameras.forEach(cam=>{
+          // real-feed cameras are a live monitor: no simulated faces/events here
+          // (detection happens in the edge_client process, not this UI).
+          if(cam.preview||cam.hls){ next[cam.id]={status:"online",fps:15,faces:[],rc:0}; return; }
+          const cur=prev[cam.id]||{status:"online",fps:13,faces:[],rc:0};
+          let {status,fps,faces,rc}=cur; faces=faces.map(f=>({...f}));
+          // reconnect blips
+          if(status==="reconnecting"){ rc-=1; if(rc<=0){status="online";fps=Math.round(rnd(11,15));}
+            next[cam.id]={status,fps,faces:[],rc}; return; }
+          if(Math.random()<0.025){ next[cam.id]={status:"reconnecting",fps:0,faces:[],rc:Math.round(rnd(2,4))}; return; }
+          fps=Math.max(9,Math.min(15,fps+Math.round(rnd(-1,1))));
+          // move + bounce
+          faces.forEach(f=>{ f.x+=f.vx; f.y+=f.vy;
+            if(f.x<2||f.x>100-f.w-2)f.vx*=-1; if(f.y<6||f.y>100-f.h-2)f.vy*=-1;
+            f.x=Math.max(2,Math.min(100-f.w-2,f.x)); f.y=Math.max(6,Math.min(100-f.h-2,f.y)); });
+          // spawn
+          if(faces.length<2 && Math.random()<0.3){
+            faces.push({key:"f"+(seq.current++),x:rnd(8,60),y:rnd(12,55),w:rnd(16,24),h:rnd(22,32),
+              vx:rnd(-3,3),vy:rnd(-2,2),name:null,score:0,liveness:0,age:0}); }
+          // despawn
+          if(faces.length && Math.random()<0.12) faces.shift();
+          // recognize
+          faces.forEach(f=>{ f.age=(f.age||0)+1;
+            if(!f.name && f.age>=2 && Math.random()<0.4){
+              const sc=rnd(0.58,0.93), lv=rnd(0.55,0.97);
+              if(sc>=cfg.matching.threshold){
+                f.name=pick(EMPLOYEES); f.score=sc; f.liveness=lv;
+                if(lv>=cfg.matching.liveness_threshold){
+                  newEvents.push({key:"e"+(seq.current++),name:f.name,cam:cam.id,area:cam.area||"—",
+                    time:hhmmss(now()),score:sc,liveness:lv});
+                }
+              }
+            }});
+          next[cam.id]={status,fps,faces,rc};
+        });
+        if(newEvents.length) setEvents(ev=>[...newEvents.reverse(),...ev].slice(0,40));
+        return next;
+      });
+    },800);
+    return ()=>clearInterval(iv);
+  },[running, cfg.cameras, cfg.matching.threshold, cfg.matching.liveness_threshold]);
+
+  const save=()=>{ localStorage.setItem(LS_KEY,JSON.stringify(cfg)); setToast("Configuration saved");
+    setTimeout(()=>setToast(null),2200); };
+  const toggle=()=>{ if(engine==="stopped")setEngine("starting"); else {setEngine("stopped");setEvents([]);} };
+
+  const totalTracks=Object.values(sim).reduce((n,s)=>n+(s.status==="online"?s.faces.length:0),0);
+  const btn = engine==="running"
+    ? {label:"Stop engine",bg:"color-mix(in oklch, var(--red) 22%, var(--panel))",bd:"var(--red)",fg:"var(--red)"}
+    : engine==="starting" ? {label:"Starting…",bg:"var(--panel)",bd:"var(--amber)",fg:"var(--amber)"}
+    : {label:"Start engine",bg:"var(--green)",bd:"var(--green)",fg:"oklch(0.16 0.02 260)"};
+
+  return (
+    <div style={{minHeight:"100vh",display:"flex",flexDirection:"column"}}>
+      {/* header */}
+      <header style={{display:"flex",alignItems:"center",gap:16,padding:"12px 20px",
+          borderBottom:"1px solid var(--border)",background:"oklch(0.18 0.02 260 / 70%)",
+          backdropFilter:"blur(8px)",position:"sticky",top:0,zIndex:5}}>
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          <div style={{width:30,height:30,borderRadius:8,display:"grid",placeContent:"center",
+            background:"linear-gradient(140deg,var(--brand),var(--brand2))",color:"oklch(0.16 0.02 260)",fontWeight:800}}>◉</div>
+          <div style={{lineHeight:1.15}}>
+            <div style={{fontWeight:700}}>Face Edge Console</div>
+            <div style={{fontSize:11.5,color:"var(--faint)"}} className="mono">tb-facecore · edge_client</div>
+          </div>
+        </div>
+        <div style={{display:"flex",gap:8,marginLeft:8}}>
+          <Pill tone={engine==="running"?"green":engine==="starting"?"amber":"muted"} blink={engine!=="stopped"}>
+            Engine: {engine}</Pill>
+          <Pill tone={engine==="stopped"?"muted":"brand"} blink={engine!=="stopped"}>
+            Frappe: {engine==="stopped"?"idle":"connected"}</Pill>
+          <Pill tone="muted">embeddings synced: <b style={{color:"var(--text)",marginLeft:3}}>{synced}</b></Pill>
+        </div>
+        <span style={{flex:1}}/>
+        <nav style={{display:"flex",gap:4,background:"var(--bg)",padding:4,borderRadius:10,border:"1px solid var(--border)"}}>
+          {["console","config"].map(v=>(
+            <button key={v} onClick={()=>setView(v)} style={{padding:"7px 14px",borderRadius:7,fontWeight:600,
+              color:view===v?"var(--text)":"var(--muted)",background:view===v?"var(--panel2)":"transparent"}}>
+              {v==="console"?"Live Console":"Configuration"}</button>))}
+        </nav>
+        <button onClick={toggle} disabled={engine==="starting"}
+          style={{padding:"10px 20px",borderRadius:10,fontWeight:700,minWidth:130,
+            background:btn.bg,border:`1px solid ${btn.bd}`,color:btn.fg,
+            opacity:engine==="starting"?.8:1,cursor:engine==="starting"?"default":"pointer"}}>
+          {btn.label}</button>
+      </header>
+
+      {/* body */}
+      <main style={{flex:1,padding:"18px 20px",maxWidth:1500,width:"100%",margin:"0 auto"}}>
+        {view==="console" ? (
+          <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 340px",gap:16,alignItems:"start"}}>
+            <div>
+              <div style={{display:"flex",gap:14,marginBottom:13,color:"var(--muted)",fontSize:13}}>
+                <span>cameras <b style={{color:"var(--text)"}} className="mono">{cfg.cameras.length}</b></span>
+                <span>active tracks <b style={{color:"var(--text)"}} className="mono">{totalTracks}</b></span>
+                <span>events <b style={{color:"var(--text)"}} className="mono">{events.length}</b></span>
+              </div>
+              <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(330px,1fr))",gap:14}}>
+                {cfg.cameras.map(cam=><CameraTile key={cam.id} cam={cam} sim={sim[cam.id]} running={running}/>)}
+                {cfg.cameras.length===0 && <div style={{padding:40,textAlign:"center",color:"var(--faint)",
+                  border:"1px dashed var(--border)",borderRadius:14}}>No cameras configured. Add some in Configuration.</div>}
+              </div>
+            </div>
+            <div style={{position:"sticky",top:74,height:"calc(100vh - 92px)"}}><EventsRail events={events} running={running}/></div>
+          </div>
+        ) : (
+          <div style={{maxWidth:920,margin:"0 auto"}}><ConfigView cfg={cfg} setCfg={setCfg} onSave={save}/></div>
+        )}
+      </main>
+
+      {toast && <div style={{position:"fixed",bottom:22,left:"50%",transform:"translateX(-50%)",
+        background:"var(--green)",color:"oklch(0.16 0.02 260)",padding:"11px 18px",borderRadius:10,
+        fontWeight:700,boxShadow:"0 8px 30px oklch(0 0 0 / 35%)",animation:"toastin .25s ease"}}>✓ {toast}</div>}
+    </div>
+  );
+}
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>

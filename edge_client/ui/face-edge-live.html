@@ -1,0 +1,189 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1"/>
+<title>Face Edge — Live Preview</title>
+<script src="https://cdn.jsdelivr.net/npm/hls.js@1.5.13/dist/hls.min.js"></script>
+<style>
+  :root{
+    --bg:oklch(0.16 0.02 260); --panel:oklch(0.22 0.022 260); --border:oklch(0.32 0.02 260);
+    --text:oklch(0.94 0.01 260); --muted:oklch(0.68 0.02 260); --faint:oklch(0.55 0.02 260);
+    --green:oklch(0.78 0.16 150); --amber:oklch(0.82 0.15 80); --red:oklch(0.66 0.20 22); --brand:oklch(0.74 0.13 230);
+  }
+  *{box-sizing:border-box}
+  body{margin:0;min-height:100vh;background:radial-gradient(1000px 600px at 80% -10%, oklch(0.19 0.02 260), var(--bg));
+    color:var(--text);font:14px/1.5 ui-sans-serif,system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
+  .mono{font-family:ui-monospace,Menlo,Consolas,monospace}
+  button{font:inherit;cursor:pointer;border:0}
+  input{font:inherit}
+  header{display:flex;align-items:center;gap:12px;padding:13px 22px;border-bottom:1px solid var(--border);
+    background:oklch(0.18 0.02 260 / 75%);backdrop-filter:blur(8px)}
+  .logo{width:28px;height:28px;border-radius:8px;display:grid;place-content:center;font-weight:800;
+    background:linear-gradient(140deg,var(--brand),oklch(0.66 0.14 250));color:oklch(0.16 0.02 260)}
+  .pill{display:inline-flex;align-items:center;gap:6px;padding:3px 9px;border-radius:999px;font-size:12px;font-weight:600}
+  .dot{width:7px;height:7px;border-radius:99px}
+  @keyframes blink{0%,100%{opacity:1}50%{opacity:.35}}
+  @keyframes drift{0%{transform:translate(0,0)}25%{transform:translate(34%,12%)}50%{transform:translate(60%,40%)}
+    75%{transform:translate(20%,55%)}100%{transform:translate(0,0)}}
+  @keyframes pop{from{transform:scale(.6);opacity:0}to{transform:scale(1);opacity:1}}
+  wrap{}
+  .bar{display:flex;flex-wrap:wrap;gap:10px;align-items:end;padding:16px 22px}
+  .fld{display:grid;gap:5px}
+  .fld span{font-size:12px;font-weight:600;color:var(--muted)}
+  .in{padding:9px 11px;border-radius:9px;background:var(--bg);color:var(--text);border:1px solid var(--border);outline:none}
+  .in:focus{border-color:var(--brand)}
+  .btn{padding:9px 16px;border-radius:9px;font-weight:700;background:var(--brand);color:oklch(0.16 0.02 260)}
+  .btn.ghost{background:transparent;border:1px solid var(--border);color:var(--muted);font-weight:600}
+  .tile{background:var(--panel);border:1px solid var(--border);border-radius:14px;overflow:hidden;max-width:900px;margin:6px 22px 22px}
+  .thead{display:flex;align-items:center;gap:8px;padding:10px 13px;border-bottom:1px solid var(--border)}
+  .stage{position:relative;aspect-ratio:16/9;background:#000;overflow:hidden}
+  video{width:100%;height:100%;object-fit:contain;display:block;background:#000}
+  .placeholder{position:absolute;inset:0;display:grid;place-content:center;text-align:center;gap:6px;color:var(--faint)}
+  .scan{position:absolute;left:0;right:0;top:0;bottom:0;pointer-events:none;
+    background:linear-gradient(transparent 50%, oklch(0.5 0.05 230 / 5%) 50%);background-size:100% 4px}
+  .ovl{position:absolute;width:22%;height:34%;left:8%;top:14%;border:2px solid var(--green);border-radius:6px;
+    box-shadow:0 0 0 1px oklch(0.78 0.16 150 / 25%),0 0 20px oklch(0.78 0.16 150 / 22%);animation:drift 14s ease-in-out infinite}
+  .lbl{position:absolute;left:-2px;top:-24px;white-space:nowrap;display:flex;gap:5px;align-items:center;animation:pop .2s ease}
+  .lbl .name{font-size:11px;font-weight:700;color:oklch(0.16 0.02 260);background:var(--green);padding:2px 6px;border-radius:5px}
+  .lbl .live{font-size:10px;font-weight:700;padding:2px 5px;border-radius:4px;color:var(--green);
+    background:color-mix(in oklch,var(--green) 16%,transparent);border:1px solid color-mix(in oklch,var(--green) 40%,transparent)}
+  .tfoot{display:flex;gap:16px;align-items:center;padding:8px 13px;font-size:12px;color:var(--muted)}
+  .hint{max-width:900px;margin:0 22px 30px;color:var(--faint);font-size:12.5px;line-height:1.7}
+  code{background:var(--bg);border:1px solid var(--border);padding:1px 6px;border-radius:5px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">◉</div>
+  <div style="line-height:1.15">
+    <div style="font-weight:700">Face Edge — Live Preview</div>
+    <div class="mono" style="font-size:11.5px;color:var(--faint)">real RTSP → HLS · how footage appears in the tile</div>
+  </div>
+  <span style="flex:1"></span>
+  <span id="state" class="pill" style="color:var(--faint);background:color-mix(in oklch,var(--faint) 14%,transparent)">
+    <span class="dot" style="background:var(--faint)"></span><span id="stateTxt">idle</span></span>
+</header>
+
+<div class="bar">
+  <label class="fld" style="min-width:130px"><span>Camera id</span><input id="cid" class="in mono" value="edge-001"/></label>
+  <label class="fld" style="min-width:130px"><span>Area</span><input id="area" class="in" value="Floor 2"/></label>
+  <label class="fld" style="flex:1;min-width:280px"><span>HLS stream URL</span>
+    <input id="src" class="in mono" value="./live/stream.m3u8"/></label>
+  <button class="btn" id="connect">Connect</button>
+  <button class="btn ghost" id="overlay">Toggle demo overlay</button>
+</div>
+
+<div class="tile">
+  <div class="thead">
+    <b id="tid" class="mono">edge-001</b><span style="font-size:12px;color:var(--faint)" id="tarea">· Floor 2</span>
+    <span style="flex:1"></span>
+    <span id="tstatus" class="pill" style="color:var(--faint);background:color-mix(in oklch,var(--faint) 14%,transparent)">
+      <span class="dot" style="background:var(--faint)"></span><span id="tstatusTxt">offline</span></span>
+  </div>
+  <div class="stage" id="stage">
+    <video id="v" muted autoplay playsinline></video>
+    <div class="scan"></div>
+    <div class="placeholder" id="ph">
+      <div style="font-weight:600">— no stream —</div>
+      <div style="font-size:11.5px">start the bridge, then press Connect</div>
+    </div>
+    <div class="ovl" id="ovl" style="display:none">
+      <div class="lbl"><span class="name">Martin Mwangi · 0.74</span><span class="live">LIVE 0.81</span></div>
+    </div>
+  </div>
+  <div class="tfoot">
+    <span>resolution <b id="res" class="mono" style="color:var(--text)">—</b></span>
+    <span>fps <b id="fps" class="mono" style="color:var(--text)">—</b></span>
+    <span style="flex:1"></span>
+    <span class="mono" id="srcecho" style="font-size:11px;color:var(--faint)"></span>
+  </div>
+</div>
+
+<p class="hint">
+  This page plays the <b>real</b> camera via the local RTSP→HLS bridge. Run
+  <code>./rtsp-bridge.sh "rtsp://192.168.1.68:1935"</code> (camera must be streaming), then press <b>Connect</b>.
+  The green box + label is a <b>demo overlay</b> showing how a recognition is drawn over live footage — toggle it on/off.
+  The production edge client draws these from real detections; this preview is just the video + UI chrome.
+</p>
+
+<script>
+const $ = id => document.getElementById(id);
+const v = $("v");
+let hls = null;
+
+function setState(el, dotEl, txt, color){
+  el.style.color = color; el.style.background = `color-mix(in oklch, ${color} 14%, transparent)`;
+  dotEl.style.background = color;
+}
+function topState(txt, color, blink){
+  $("stateTxt").textContent = txt; const dot = $("state").querySelector(".dot");
+  setState($("state"), dot, txt, color); dot.style.animation = blink ? "blink 1.1s infinite" : "none";
+}
+function tileState(txt, color, blink){
+  $("tstatusTxt").textContent = txt; const dot = $("tstatus").querySelector(".dot");
+  setState($("tstatus"), dot, txt, color); dot.style.animation = blink ? "blink 1.1s infinite" : "none";
+}
+
+function connect(){
+  const url = $("src").value.trim();
+  $("tid").textContent = $("cid").value || "edge-001";
+  $("tarea").textContent = "· " + ($("area").value || "—");
+  $("srcecho").textContent = url;
+  $("ph").style.display = "none";
+  topState("connecting", "var(--amber)", true); tileState("connecting", "var(--amber)", true);
+
+  if (hls){ hls.destroy(); hls = null; }
+  const onPlaying = () => { topState("live", "var(--green)", true); tileState("Online", "var(--green)", true); };
+  const onError = (m) => {
+    topState("error", "var(--red)", false); tileState("Reconnecting", "var(--red)", true);
+    $("ph").style.display = "grid";
+    $("ph").innerHTML = '<div style="font-weight:600;color:var(--red)">stream not available</div>'+
+      '<div style="font-size:11.5px">'+(m||'is the bridge running and the camera streaming?')+'</div>';
+  };
+
+  if (window.Hls && Hls.isSupported()){
+    // Low-latency live: sit ~1 segment from the live edge, and if we drift
+    // behind (tab hidden, network hiccup) speed playback up to 1.6× to snap
+    // back instead of accumulating lag.
+    hls = new Hls({
+      lowLatencyMode:true,
+      liveSyncDurationCount:1,
+      liveMaxLatencyDurationCount:4,
+      maxLiveSyncPlaybackRate:1.6,
+      backBufferLength:2,
+      maxBufferLength:4,
+    });
+    hls.loadSource(url); hls.attachMedia(v);
+    hls.on(Hls.Events.MANIFEST_PARSED, () => v.play().catch(()=>{}));
+    hls.on(Hls.Events.ERROR, (e, data) => { if (data && data.fatal) onError(data.details); });
+  } else if (v.canPlayType("application/vnd.apple.mpegurl")){
+    v.src = url; v.addEventListener("loadedmetadata", () => v.play().catch(()=>{}));
+    v.addEventListener("error", () => onError());
+  } else {
+    onError("this browser can't play HLS");
+  }
+  v.addEventListener("playing", onPlaying, { once:false });
+}
+
+// resolution + fps readout
+let frames = 0, lastT = performance.now();
+function tick(){
+  if (v.videoWidth) $("res").textContent = v.videoWidth + "×" + v.videoHeight;
+  requestAnimationFrame(tick);
+}
+if ("requestVideoFrameCallback" in HTMLVideoElement.prototype){
+  const cb = () => { frames++; const now = performance.now();
+    if (now - lastT >= 1000){ $("fps").textContent = frames; frames = 0; lastT = now; }
+    v.requestVideoFrameCallback(cb); };
+  v.requestVideoFrameCallback(cb);
+}
+tick();
+
+$("connect").onclick = connect;
+$("overlay").onclick = () => { const o = $("ovl"); o.style.display = o.style.display === "none" ? "block" : "none"; };
+// auto-connect on load so opening the page just shows the camera
+window.addEventListener("load", connect);
+</script>
+</body>
+</html>

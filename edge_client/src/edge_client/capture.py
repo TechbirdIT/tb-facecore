@@ -63,13 +63,16 @@ def process_frame(
             continue
         device_id, score = track.identity
         if not debouncer.allow(device_id, now):
-            logger.debug("debounced %s (track %d)", device_id, track.id)
+            if not track.logged_debounce:  # log once per track, not every frame
+                logger.debug("debounced %s (track %d)", device_id, track.id)
+                track.logged_debounce = True
             continue
         timestamp = now.strftime("%Y-%m-%d %H:%M:%S")
         try:
             client.post_event(
                 cfg.edge_id, device_id, timestamp, score, track.last_liveness
             )
+            track.logged_debounce = False  # allow one debounce log after this post
             logger.info(
                 "event posted for %s (score %.3f, track %d)", device_id, score, track.id
             )

@@ -45,6 +45,7 @@ class Track:
     spoof: bool = False                          # last liveness check failed
     misses: int = 0                              # consecutive frames unmatched
     age: int = 0                                 # frames seen
+    logged_debounce: bool = False                # debounce already logged once
 
 
 @dataclass

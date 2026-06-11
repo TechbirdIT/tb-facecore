@@ -129,3 +129,25 @@ def test_distinct_faces_get_distinct_tracks(tmp_path):
     process_frame(np.zeros((4, 4, 3), np.uint8), a, _matcher(), Tracker(),
                   Debouncer(2), client, store, _cfg(), now=datetime(2026, 1, 1, 9, 0))
     assert a.embed.call_count == 2
+
+
+def test_failed_attempt_retries_next_frame_not_after_reverify(tmp_path):
+    """A bad first glimpse (low liveness) must retry immediately, not freeze the
+    unidentified track for reverify_seconds."""
+    client = MagicMock()
+    store = Store(str(tmp_path / "q.sqlite"))
+    a = MagicMock()
+    a.detect.return_value = [_box()]
+    a.embed.return_value = [1.0, 0.0, 0.0]
+    a.liveness.side_effect = [0.1, 0.9]  # frame 1 fails liveness, frame 2 passes
+    tracker, cfg = Tracker(), _cfg()
+    frame = np.zeros((4, 4, 3), np.uint8)
+
+    process_frame(frame, a, _matcher(), tracker, Debouncer(2), client, store, cfg,
+                  now=datetime(2026, 1, 1, 9, 0, 0))
+    assert client.post_event.call_count == 0  # rejected on frame 1
+    # only 1s later — far inside reverify_seconds(30); old logic would freeze it
+    process_frame(frame, a, _matcher(), tracker, Debouncer(2), client, store, cfg,
+                  now=datetime(2026, 1, 1, 9, 0, 1))
+    assert a.liveness.call_count == 2         # retried, not frozen
+    assert client.post_event.call_count == 1  # acquired + posted

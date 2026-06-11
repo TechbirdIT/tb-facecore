@@ -18,14 +18,19 @@ logger = logging.getLogger(__name__)
 
 
 def _needs_recognition(track, cfg, now: datetime) -> bool:
-    """Recognize a new track once; re-verify periodically to catch id-swaps.
+    """Retry until a track is identified, then re-verify only periodically.
 
-    IoU tracking is appearance-blind: under occlusion/crossing a track can keep
-    its id but now frame a different person. Re-embedding every reverify_seconds
-    bounds how long a swapped identity can persist, without paying the embedding
-    cost every frame.
+    Acquisition must be fast: a not-yet-identified track — new, or whose last
+    attempt failed liveness/match (a poorly framed first glimpse, score 0.12) —
+    is retried EVERY frame until it locks on. Stamping last_verified on a failed
+    attempt (as before) froze an unrecognized face for reverify_seconds, which is
+    why it took so long to pick up a face.
+
+    Once identified, switch to the slow cadence: re-embed every reverify_seconds
+    to guard against IoU id-swaps (tracking is appearance-blind), without paying
+    the embedding cost every frame.
     """
-    if track.last_verified is None:
+    if track.identity is None:
         return True
     return (now - track.last_verified).total_seconds() >= cfg.reverify_seconds
 

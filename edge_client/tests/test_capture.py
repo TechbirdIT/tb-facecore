@@ -6,7 +6,7 @@ from unittest.mock import MagicMock
 import numpy as np
 from facecore.models import FaceBox
 
-from edge_client.capture import process_frame
+from edge_client.capture import process_frame, resolve_cameras
 from edge_client.config import EdgeConfig
 from edge_client.debounce import Debouncer
 from edge_client.matcher import Matcher
@@ -173,3 +173,16 @@ def test_unknown_face_backs_off_after_fast_window(tmp_path):
     assert a.embed.call_count == 7      # 5 fast + 2 backoff (at ~2.8s and ~4.0s)
     assert a.embed.call_count < 11      # strictly fewer than one-per-frame
     assert client.post_event.call_count == 0  # never matched → never posted
+
+
+def test_resolve_cameras_single():
+    from dataclasses import replace
+    cfg = replace(_cfg(), edge_id="edge-001", camera_source=0, cameras=None)
+    assert resolve_cameras(cfg) == [("edge-001", 0)]
+
+
+def test_resolve_cameras_multi():
+    from dataclasses import replace
+    cams = (("edge-001", "rtsp://a/1"), ("edge-002", "rtsp://b/2"))
+    cfg = replace(_cfg(), cameras=cams)
+    assert resolve_cameras(cfg) == [("edge-001", "rtsp://a/1"), ("edge-002", "rtsp://b/2")]

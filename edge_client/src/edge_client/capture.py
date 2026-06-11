@@ -46,15 +46,19 @@ def _needs_recognition(track, cfg, now: datetime) -> bool:
 
 def process_frame(
     frame, analyzer, matcher, tracker, debouncer, client, store, cfg, now: datetime
-) -> None:
+) -> list:
     """One frame: detect → track → (embed+match once per track / re-verify) →
     debounce → event/enqueue.
 
     Detection runs every frame (cheap); the expensive embedding + match run only
     for new or due-for-re-verification tracks, not for every face every frame.
+
+    Returns the tracks visible this frame (with their current bbox/identity/
+    liveness state) so a caller can render an annotated preview.
     """
     boxes = analyzer.detect(frame)
-    for track, idx in tracker.update([b.bbox for b in boxes]):
+    visible = tracker.update([b.bbox for b in boxes])
+    for track, idx in visible:
         if _needs_recognition(track, cfg, now):
             face = boxes[idx]
             if track.first_attempt is None:
@@ -89,52 +93,131 @@ def process_frame(
             )
         except Exception:
             logger.warning("event post failed for %s; enqueueing offline", device_id)
-            store.enqueue_event(device_id, timestamp, score, track.last_liveness)
+            store.enqueue_event(
+                device_id, timestamp, score, track.last_liveness, cfg.edge_id
+            )
+
+    return [track for track, _idx in visible]
+
+
+def resolve_cameras(cfg) -> list[tuple[str, object]]:
+    """The (camera_id, source) pairs this process should run.
+
+    Multi-camera: cfg.cameras is a list of (id, source). Single-camera (legacy):
+    one pair from cfg.edge_id + cfg.camera_source.
+    """
+    if cfg.cameras:
+        return [(cid, src) for cid, src in cfg.cameras]
+    return [(cfg.edge_id, cfg.camera_source)]
+
+
+def _sighting_window_minutes(cfg) -> float:
+    """How often (in minutes) the edge posts a sighting per employee — the
+    presence-sampling cadence. Server-side punch_debounce gates HR check-ins, so
+    this can be finer (seconds) without causing duplicate check-ins."""
+    seconds = cfg.sighting_interval_seconds or (cfg.debounce_minutes * 60)
+    return seconds / 60.0
+
+
+def _camera_loop(cam_id, source_spec, shared, analyzer, client, store, cfg, stop):  # pragma: no cover
+    """One camera's capture loop: its own FrameSource + Tracker + Debouncer, but
+    the analyzer, matcher (via `shared`), client and store are shared across all
+    cameras in this process — so the face models load once."""
+    from dataclasses import replace
+
+    from edge_client.camera import FrameSource, build_ffmpeg_options
+    from edge_client.debounce import Debouncer
+    from edge_client.tracker import Tracker
+
+    cam_cfg = replace(cfg, edge_id=cam_id, camera_source=source_spec)
+    tracker = Tracker(
+        iou_threshold=cfg.track_iou_threshold, max_misses=cfg.track_max_misses
+    )
+    debouncer = Debouncer(_sighting_window_minutes(cfg))
+    ffmpeg_options = build_ffmpeg_options(
+        cfg.rtsp_transport, cfg.rtsp_timeout_seconds, cfg.ffmpeg_capture_options
+    )
+    source = FrameSource(source_spec, ffmpeg_options=ffmpeg_options)
+    source.start()
+
+    preview = shared.get("preview")
+    preview_period = 1.0 / cfg.preview_fps if (preview and cfg.preview_fps) else 0.0
+    last_preview = 0.0
+
+    logger.info("camera loop started: %s", cam_id)
+    try:
+        while not stop.is_set():
+            frame = source.read()
+            if frame is None:
+                time.sleep(0.01)
+                continue
+            tracks = process_frame(
+                frame, analyzer, shared["matcher"], tracker, debouncer,
+                client, store, cam_cfg, now=datetime.now(),
+            )
+            if preview is not None:
+                mono = time.monotonic()
+                if mono - last_preview >= preview_period:
+                    last_preview = mono
+                    from edge_client.preview import annotate, encode_jpeg
+
+                    jpeg = encode_jpeg(
+                        annotate(frame, tracks),
+                        quality=cfg.preview_jpeg_quality, scale=cfg.preview_scale,
+                    )
+                    if jpeg is not None:
+                        preview.publish(cam_id, jpeg)
+    finally:
+        source.release()
 
 
 def run_capture(
     analyzer, client, store, cfg, model_version: str
 ) -> None:  # pragma: no cover
-    """Capture loop. Thin I/O glue around FrameSource + process_frame + sync."""
-    from edge_client.camera import FrameSource, build_ffmpeg_options
-    from edge_client.debounce import Debouncer
-    from edge_client.tracker import Tracker
+    """Run one capture loop per camera (sharing the analyzer + matcher), plus a
+    central sync/heartbeat tick. One camera or many — same path."""
+    import threading
 
-    debouncer = Debouncer(cfg.debounce_minutes)
-    tracker = Tracker(
-        iou_threshold=cfg.track_iou_threshold, max_misses=cfg.track_max_misses
-    )
-    matcher = sync_faces(client, store, model_version)
+    cameras = resolve_cameras(cfg)
+    shared = {"matcher": sync_faces(client, store, model_version)}
+
+    preview_server = None
+    if cfg.preview_enabled:
+        from edge_client.preview import PreviewServer
+
+        preview_server = PreviewServer(cfg.preview_host, cfg.preview_port)
+        preview_server.start()
+        shared["preview"] = preview_server
+
+    stop = threading.Event()
+    threads = [
+        threading.Thread(
+            target=_camera_loop,
+            args=(cam_id, src, shared, analyzer, client, store, cfg, stop),
+            daemon=True,
+        )
+        for cam_id, src in cameras
+    ]
+    for t in threads:
+        t.start()
+    logger.info("started %d camera loop(s)", len(threads))
+
     last_sync = time.monotonic()
-    ffmpeg_options = build_ffmpeg_options(
-        cfg.rtsp_transport, cfg.rtsp_timeout_seconds, cfg.ffmpeg_capture_options
-    )
-    source = FrameSource(cfg.camera_source, ffmpeg_options=ffmpeg_options)
-    source.start()
     try:
         while True:
-            frame = source.read()
-            if frame is None:
-                time.sleep(0.01)  # nothing new; don't spin
-            else:
-                process_frame(
-                    frame,
-                    analyzer,
-                    matcher,
-                    tracker,
-                    debouncer,
-                    client,
-                    store,
-                    cfg,
-                    now=datetime.now(),
-                )
+            time.sleep(0.5)
             if time.monotonic() - last_sync >= cfg.sync_interval:
-                matcher = sync_faces(client, store, model_version)
+                shared["matcher"] = sync_faces(client, store, model_version)
                 flush_queue(client, store, cfg.edge_id)
-                try:
-                    client.heartbeat(cfg.edge_id, _APP_VERSION)
-                except Exception:
-                    logger.debug("heartbeat failed; will retry next tick")
+                for cam_id, _src in cameras:
+                    try:
+                        client.heartbeat(cam_id, _APP_VERSION)
+                    except Exception:
+                        logger.debug("heartbeat failed for %s; will retry", cam_id)
                 last_sync = time.monotonic()
     finally:
-        source.release()
+        stop.set()
+        for t in threads:
+            t.join(timeout=2.0)
+        if preview_server is not None:
+            preview_server.stop()

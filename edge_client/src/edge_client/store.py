@@ -25,7 +25,8 @@ CREATE TABLE IF NOT EXISTS event_queue (
     device_id TEXT NOT NULL,
     timestamp TEXT NOT NULL,
     similarity REAL,
-    liveness REAL
+    liveness REAL,
+    edge_id TEXT
 );
 """
 
@@ -36,6 +37,15 @@ class Store:
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)
         with self._conn() as c:
             c.executescript(_SCHEMA)
+            self._migrate(c)
+
+    @staticmethod
+    def _migrate(c) -> None:
+        # Add edge_id to event_queue for DBs created before multi-camera support,
+        # so a queued event remembers which camera produced it.
+        cols = {r["name"] for r in c.execute("PRAGMA table_info(event_queue)")}
+        if "edge_id" not in cols:
+            c.execute("ALTER TABLE event_queue ADD COLUMN edge_id TEXT")
 
     @contextmanager
     def _conn(self):
@@ -94,13 +104,19 @@ class Store:
             c.execute("DELETE FROM checkin_queue WHERE id = ?", (row_id,))
 
     def enqueue_event(
-        self, device_id: str, timestamp: str, similarity: float, liveness: float
+        self,
+        device_id: str,
+        timestamp: str,
+        similarity: float,
+        liveness: float,
+        edge_id: str | None = None,
     ) -> None:
         with self._conn() as c:
             c.execute(
-                "INSERT INTO event_queue (device_id, timestamp, similarity, liveness)"
-                " VALUES (?, ?, ?, ?)",
-                (device_id, timestamp, similarity, liveness),
+                "INSERT INTO event_queue"
+                " (device_id, timestamp, similarity, liveness, edge_id)"
+                " VALUES (?, ?, ?, ?, ?)",
+                (device_id, timestamp, similarity, liveness, edge_id),
             )
 
     def pending_events(self) -> list[dict]:

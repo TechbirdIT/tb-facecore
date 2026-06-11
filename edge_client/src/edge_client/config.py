@@ -38,22 +38,59 @@ class EdgeConfig:
     # every frame.
     acquire_fast_seconds: float = 2.0
     acquire_backoff_seconds: float = 1.0
+    # Multi-camera: when set, this process runs one capture loop per camera,
+    # sharing the loaded face models. Each entry is (camera_id, source). When
+    # None, the single edge_id + camera_source above is used.
+    cameras: tuple | None = None
+    # How often a present employee is recorded as a sighting (presence sampling).
+    # Server-side punch_debounce gates HR check-ins, so this can be fine.
+    sighting_interval_seconds: float = 60.0
+    # Annotated MJPEG preview for the operator console. Opt-in; zero overhead off.
+    # When on, the recognition loop draws real boxes/identities and serves them at
+    # http://<host>:<port>/<camera_id>.mjpg (sub-second, browser-displayable).
+    preview_enabled: bool = False
+    preview_host: str = "127.0.0.1"
+    preview_port: int = 9101
+    preview_fps: float = 12.0
+    preview_scale: float = 0.75
+    preview_jpeg_quality: int = 70
+
+
+def _resolve_edge_id(edge: dict, cameras: tuple | None) -> str:
+    if "id" in edge:
+        return edge["id"]
+    if cameras:
+        return cameras[0][0]
+    return edge["id"]  # raise KeyError: id required when no cameras list
+
+
+def _resolve_camera_source(edge: dict, cameras: tuple | None):
+    # explicit membership checks: camera_source may legitimately be 0 (webcam)
+    if "camera_source" in edge:
+        return edge["camera_source"]
+    if "camera_index" in edge:  # legacy key
+        return edge["camera_index"]
+    if cameras:
+        return cameras[0][1]
+    return edge["camera_source"]  # raise KeyError: required when no cameras list
 
 
 def load_config(path: str) -> EdgeConfig:
     with open(path) as f:
         raw = yaml.safe_load(f)
+    edge = raw["edge"]
+    raw_cams = edge.get("cameras")
+    cameras = (
+        tuple((c["id"], c["source"]) for c in raw_cams) if raw_cams else None
+    )
     return EdgeConfig(
         frappe_url=raw["frappe"]["url"],
         site=raw["frappe"]["site"],
         api_key=raw["frappe"]["api_key"],
         api_secret=raw["frappe"]["api_secret"],
-        edge_id=raw["edge"]["id"],
-        camera_source=(
-            raw["edge"]["camera_source"]
-            if "camera_source" in raw["edge"]
-            else raw["edge"]["camera_index"]  # legacy key
-        ),
+        edge_id=_resolve_edge_id(edge, cameras),
+        camera_source=_resolve_camera_source(edge, cameras),
+        cameras=cameras,
         sync_interval=raw["edge"]["sync_interval"],
         threshold=raw["matching"]["threshold"],
         liveness_threshold=raw["matching"]["liveness_threshold"],
@@ -63,6 +100,13 @@ def load_config(path: str) -> EdgeConfig:
         rtsp_transport=raw["edge"].get("rtsp_transport", "tcp"),
         rtsp_timeout_seconds=raw["edge"].get("rtsp_timeout_seconds", 10.0),
         ffmpeg_capture_options=raw["edge"].get("ffmpeg_capture_options"),
+        sighting_interval_seconds=raw["edge"].get("sighting_interval_seconds", 60.0),
+        preview_enabled=raw.get("preview", {}).get("enabled", False),
+        preview_host=raw.get("preview", {}).get("host", "127.0.0.1"),
+        preview_port=raw.get("preview", {}).get("port", 9101),
+        preview_fps=raw.get("preview", {}).get("fps", 12.0),
+        preview_scale=raw.get("preview", {}).get("scale", 0.75),
+        preview_jpeg_quality=raw.get("preview", {}).get("jpeg_quality", 70),
         track_iou_threshold=raw.get("tracking", {}).get("iou_threshold", 0.3),
         track_max_misses=raw.get("tracking", {}).get("max_misses", 15),
         reverify_seconds=raw.get("tracking", {}).get("reverify_seconds", 30.0),

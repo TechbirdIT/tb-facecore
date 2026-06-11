@@ -16,6 +16,19 @@ edge:
   # Use the camera's SUB-stream (lower resolution) — detection doesn't need 4MP.
   camera_source: 0
   sync_interval: 300  # seconds; how often to pull embeddings from Frappe
+  sighting_interval_seconds: 60  # how often a present employee is recorded (presence
+                                 # sampling). Server gates duplicate check-ins separately.
+
+  # --- Multiple cameras on ONE machine (optional) ---
+  # Run several cameras in this one process, sharing the loaded face models (saves
+  # memory vs one process per camera). Each needs its own id (= a Face Edge Device)
+  # and source. When `cameras` is set, the single `id`/`camera_source` above are
+  # only used as fallbacks. Each camera still tracks faces independently.
+  # cameras:
+  #   - id: "edge-001"
+  #     source: "rtsp://user:pass@192.168.1.68:554/Streaming/Channels/102"
+  #   - id: "edge-002"
+  #     source: "rtsp://user:pass@192.168.1.69:554/Streaming/Channels/102"
 
   # --- RTSP options (ignored when camera_source is a webcam index) ---
   rtsp_transport: "tcp"        # tcp (default, reliable) | udp (clean LAN only)
@@ -45,5 +58,18 @@ tracking:
 
 offline:
   db_path: "/var/lib/edge_client/queue.sqlite"  # offline queue storage
+
+# --- Annotated MJPEG preview for the operator console (optional) ---
+# When enabled, the recognition loop draws real boxes + identities (e.g.
+# HR-EMP-00001) on the live frames and serves them at
+# http://<host>:<port>/<camera_id>.mjpg — a sub-second, browser-displayable feed
+# the console can show in an <img>. Off by default (zero overhead).
+# preview:
+#   enabled: true
+#   host: "127.0.0.1"
+#   port: 9101
+#   fps: 12          # cap preview publish rate (recognition runs full speed)
+#   scale: 0.75      # downscale frames for the preview to save bandwidth
+#   jpeg_quality: 70
 
 # Logging is stderr-only: INFO by default, DEBUG with --debug.

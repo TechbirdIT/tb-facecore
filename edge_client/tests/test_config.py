@@ -237,3 +237,51 @@ def test_tracking_section_parsed(tmp_path):
     assert cfg.track_iou_threshold == 0.5
     assert cfg.track_max_misses == 30
     assert cfg.reverify_seconds == 60
+
+
+def test_single_camera_has_no_cameras_list(tmp_path):
+    path = _write(
+        tmp_path,
+        """
+        frappe: {url: u, site: s, api_key: k, api_secret: sec}
+        edge: {id: edge-001, camera_source: 0, sync_interval: 300}
+        matching:
+          threshold: 0.45
+          liveness_threshold: 0.6
+          min_det_score: 0.5
+          debounce_minutes: 2
+        offline: {db_path: /tmp/q.sqlite}
+    """,
+    )
+    cfg = load_config(path)
+    assert cfg.cameras is None
+    assert cfg.edge_id == "edge-001"
+    assert cfg.camera_source == 0
+    assert cfg.sighting_interval_seconds == 60.0
+
+
+def test_multi_camera_list_parsed(tmp_path):
+    path = _write(
+        tmp_path,
+        """
+        frappe: {url: u, site: s, api_key: k, api_secret: sec}
+        edge:
+          sync_interval: 300
+          sighting_interval_seconds: 30
+          cameras:
+            - {id: edge-001, source: "rtsp://a/1"}
+            - {id: edge-002, source: "rtsp://b/2"}
+        matching:
+          threshold: 0.45
+          liveness_threshold: 0.6
+          min_det_score: 0.5
+          debounce_minutes: 2
+        offline: {db_path: /tmp/q.sqlite}
+    """,
+    )
+    cfg = load_config(path)
+    assert cfg.cameras == (("edge-001", "rtsp://a/1"), ("edge-002", "rtsp://b/2"))
+    # id / camera_source fall back to the first camera when omitted
+    assert cfg.edge_id == "edge-001"
+    assert cfg.camera_source == "rtsp://a/1"
+    assert cfg.sighting_interval_seconds == 30

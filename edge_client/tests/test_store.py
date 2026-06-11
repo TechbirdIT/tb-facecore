@@ -52,3 +52,16 @@ def test_event_queue_roundtrip(tmp_path):
     assert rows[0]["similarity"] == 0.83
     store.delete_event(rows[0]["id"])
     assert store.pending_events() == []
+
+
+def test_event_queue_stores_edge_id(tmp_path):
+    store = Store(str(tmp_path / "q.sqlite"))
+    store.enqueue_event("D1", "2026-06-04 09:00:00", 0.8, 0.9, "edge-007")
+    rows = store.pending_events()
+    assert rows[0]["edge_id"] == "edge-007"
+
+
+def test_event_queue_edge_id_defaults_none(tmp_path):
+    store = Store(str(tmp_path / "q.sqlite"))
+    store.enqueue_event("D1", "2026-06-04 09:00:00", 0.8, 0.9)
+    assert store.pending_events()[0]["edge_id"] is None

@@ -32,6 +32,12 @@ class EdgeConfig:
     track_iou_threshold: float = 0.3
     track_max_misses: int = 15
     reverify_seconds: float = 30.0
+    # Acquisition: an unidentified track retries every frame for the first
+    # acquire_fast_seconds (a real face locks on instantly), then backs off to
+    # once per acquire_backoff_seconds so a lingering unknown face stops embedding
+    # every frame.
+    acquire_fast_seconds: float = 2.0
+    acquire_backoff_seconds: float = 1.0
 
 
 def load_config(path: str) -> EdgeConfig:
@@ -60,4 +66,8 @@ def load_config(path: str) -> EdgeConfig:
         track_iou_threshold=raw.get("tracking", {}).get("iou_threshold", 0.3),
         track_max_misses=raw.get("tracking", {}).get("max_misses", 15),
         reverify_seconds=raw.get("tracking", {}).get("reverify_seconds", 30.0),
+        acquire_fast_seconds=raw.get("tracking", {}).get("acquire_fast_seconds", 2.0),
+        acquire_backoff_seconds=raw.get("tracking", {}).get(
+            "acquire_backoff_seconds", 1.0
+        ),
     )

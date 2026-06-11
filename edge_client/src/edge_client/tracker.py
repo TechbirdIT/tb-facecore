@@ -40,6 +40,7 @@ class Track:
     bbox: list[float]
     # Recognition state, filled by the capture loop (not the tracker):
     identity: tuple[str, float] | None = None  # (attendance_device_id, similarity)
+    first_attempt: datetime | None = None        # when this track first tried to recognize
     last_verified: datetime | None = None       # when embed+match last ran
     last_liveness: float = 0.0
     spoof: bool = False                          # last liveness check failed

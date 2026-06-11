@@ -1,6 +1,6 @@
 # edge_client/tests/test_capture.py
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
 import numpy as np
@@ -151,3 +151,25 @@ def test_failed_attempt_retries_next_frame_not_after_reverify(tmp_path):
                   now=datetime(2026, 1, 1, 9, 0, 1))
     assert a.liveness.call_count == 2         # retried, not frozen
     assert client.post_event.call_count == 1  # acquired + posted
+
+
+def test_unknown_face_backs_off_after_fast_window(tmp_path):
+    """An unknown (never-matching) face embeds every frame only during the fast
+    window, then backs off — instead of an embed every frame forever."""
+    client = MagicMock()
+    store = Store(str(tmp_path / "q.sqlite"))
+    a = MagicMock()
+    a.detect.return_value = [_box()]
+    a.liveness.return_value = 0.9
+    a.embed.return_value = [0.0, 1.0, 0.0]  # orthogonal to D1 → never matches
+    tracker, cfg = Tracker(), _cfg()          # acquire_fast=2s, backoff=1s
+    frame = np.zeros((4, 4, 3), np.uint8)
+    base = datetime(2026, 1, 1, 9, 0, 0)
+    # 11 frames at 0.4s spacing across 0.0–4.0s
+    for t in [0.0, 0.4, 0.8, 1.2, 1.6, 2.0, 2.4, 2.8, 3.2, 3.6, 4.0]:
+        process_frame(frame, a, _matcher(), tracker, Debouncer(2), client, store,
+                      cfg, now=base + timedelta(seconds=t))
+    # fast window (<2.0s): 5 frames all embed; backoff (>=2.0s): ~1/sec, not every frame
+    assert a.embed.call_count == 7      # 5 fast + 2 backoff (at ~2.8s and ~4.0s)
+    assert a.embed.call_count < 11      # strictly fewer than one-per-frame
+    assert client.post_event.call_count == 0  # never matched → never posted

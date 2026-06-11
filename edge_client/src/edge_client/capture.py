@@ -29,10 +29,19 @@ def _needs_recognition(track, cfg, now: datetime) -> bool:
     Once identified, switch to the slow cadence: re-embed every reverify_seconds
     to guard against IoU id-swaps (tracking is appearance-blind), without paying
     the embedding cost every frame.
+
+    Unidentified tracks acquire in two phases so a lingering *unknown* face does
+    not burn an embedding every frame forever: aggressive (every frame) for the
+    first acquire_fast_seconds so a real face locks on instantly, then backed off
+    to once per acquire_backoff_seconds.
     """
-    if track.identity is None:
-        return True
-    return (now - track.last_verified).total_seconds() >= cfg.reverify_seconds
+    if track.identity is not None:
+        return (now - track.last_verified).total_seconds() >= cfg.reverify_seconds
+    if track.first_attempt is None:
+        return True  # brand-new track: try immediately
+    if (now - track.first_attempt).total_seconds() < cfg.acquire_fast_seconds:
+        return True  # fast acquisition window
+    return (now - track.last_verified).total_seconds() >= cfg.acquire_backoff_seconds
 
 
 def process_frame(
@@ -48,6 +57,8 @@ def process_frame(
     for track, idx in tracker.update([b.bbox for b in boxes]):
         if _needs_recognition(track, cfg, now):
             face = boxes[idx]
+            if track.first_attempt is None:
+                track.first_attempt = now
             live = analyzer.liveness(frame, face.bbox)
             track.last_verified = now
             track.last_liveness = live

@@ -39,6 +39,9 @@ tracking:
   iou_threshold: 0.3      # min IoU to associate a detection with an existing track
   max_misses: 15          # drop a track after this many consecutive unmatched frames
   reverify_seconds: 30    # re-embed/re-match a tracked face this often (id-swap guard)
+  acquire_fast_seconds: 2     # retry every frame this long so a real face locks on fast
+  acquire_backoff_seconds: 1  # after that, an unidentified (unknown) face retries only
+                              # this often — bounds wasted embedding on passers-by
 
 offline:
   db_path: "/var/lib/edge_client/queue.sqlite"  # offline queue storage

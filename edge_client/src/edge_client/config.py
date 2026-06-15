@@ -54,6 +54,10 @@ class EdgeConfig:
     preview_fps: float = 12.0
     preview_scale: float = 0.75
     preview_jpeg_quality: int = 70
+    # Estimate age + gender per track (buffalo_l genderage, a few ms). Off by
+    # default; the operator console enables it so the live boxes show age/gender.
+    # Emotion/race are NOT here — they run offline via /api/demography.
+    analyze_demographics: bool = False
 
 
 def _resolve_edge_id(edge: dict, cameras: tuple | None) -> str:
@@ -107,6 +111,7 @@ def load_config(path: str) -> EdgeConfig:
         preview_fps=raw.get("preview", {}).get("fps", 12.0),
         preview_scale=raw.get("preview", {}).get("scale", 0.75),
         preview_jpeg_quality=raw.get("preview", {}).get("jpeg_quality", 70),
+        analyze_demographics=raw.get("demographics", {}).get("enabled", False),
         track_iou_threshold=raw.get("tracking", {}).get("iou_threshold", 0.3),
         track_max_misses=raw.get("tracking", {}).get("max_misses", 15),
         reverify_seconds=raw.get("tracking", {}).get("reverify_seconds", 30.0),

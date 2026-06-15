@@ -47,6 +47,10 @@ class Track:
     misses: int = 0                              # consecutive frames unmatched
     age: int = 0                                 # frames seen
     logged_debounce: bool = False                # debounce already logged once
+    # Demographics (buffalo_l genderage), cached per track when enabled. Named
+    # est_* so they don't clash with `age` above (which counts frames seen).
+    est_age: int | None = None
+    est_gender: str | None = None
 
 
 @dataclass

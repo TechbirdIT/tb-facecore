@@ -7,18 +7,17 @@ the operator sees the *real* engine's boxes (e.g. ``HR-EMP-00001``) on the live
 video, perfectly aligned (the box is drawn on the same frame), with none of the
 segment-buffering lag that HLS adds.
 
-MJPEG over localhost/LAN is sub-second and trivial to display (``<img src>``),
-unlike RTSP (browsers can't play it) or HLS (≥1–2s of segment buffering). The
-cost is bandwidth (a full JPEG per frame), which is fine for a handful of
-preview cameras at a capped frame rate.
-
-Opt-in via the ``preview`` config section; when disabled there is zero overhead.
+A :class:`FrameHub` is the shared in-memory buffer (latest annotated JPEG per
+camera + a monotonic timestamp for liveness). Two HTTP front-ends serve it:
+:class:`PreviewServer` (standalone ``edge-client`` run) and the control server's
+handler (``edge-console`` run) — both via the streaming helpers here.
 """
 
 from __future__ import annotations
 
 import logging
 import threading
+import time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 logger = logging.getLogger(__name__)
@@ -53,6 +52,13 @@ def annotate(frame, tracks):
         else:
             color, label = _GRAY, "…"
 
+        # demographics suffix (when enabled + computed): e.g. "  M~33"
+        age = getattr(t, "est_age", None)
+        gender = getattr(t, "est_gender", None)
+        if age is not None or gender is not None:
+            g = {"male": "M", "female": "F"}.get(gender or "", "?")
+            label += f"  {g}~{age}" if age is not None else f"  {g}"
+
         cv2.rectangle(img, (x1, y1), (x2, y2), color, 2)
         # label chip above the box (or below if it would clip the top edge)
         (tw, th), _ = cv2.getTextSize(label, cv2.FONT_HERSHEY_SIMPLEX, 0.5, 1)
@@ -75,104 +81,23 @@ def encode_jpeg(frame, quality: int = 70, scale: float = 1.0):
     return buf.tobytes() if ok else None
 
 
-class _Handler(BaseHTTPRequestHandler):
-    def log_message(self, *args):  # silence per-request logging
-        pass
+class FrameHub:
+    """Thread-safe latest-frame buffer per camera, with liveness timestamps."""
 
-    def _cors(self):
-        self.send_header("Access-Control-Allow-Origin", "*")
-
-    def do_GET(self):  # noqa: N802 (http.server API)
-        path = self.path.split("?", 1)[0].strip("/")
-        server: PreviewServer = self.server  # type: ignore[assignment]
-
-        if path in ("", "index.html"):
-            cams = "".join(
-                f'<p><a href="/{c}.mjpg">{c}</a> '
-                f'<img src="/{c}.mjpg" width="320"></p>'
-                for c in server.camera_ids()
-            )
-            body = (
-                "<!doctype html><meta charset=utf-8>"
-                "<title>Edge previews</title>"
-                "<body style='background:#111;color:#ddd;font-family:sans-serif'>"
-                f"<h3>Annotated previews</h3>{cams or '<p>no frames yet</p>'}"
-            ).encode()
-            self.send_response(200)
-            self.send_header("Content-Type", "text/html; charset=utf-8")
-            self._cors()
-            self.send_header("Content-Length", str(len(body)))
-            self.end_headers()
-            self.wfile.write(body)
-            return
-
-        if path.endswith(".jpg"):
-            cam = path[:-4]
-            jpeg = server.latest(cam)
-            if jpeg is None:
-                self.send_error(404, "no frame")
-                return
-            self.send_response(200)
-            self.send_header("Content-Type", "image/jpeg")
-            self._cors()
-            self.send_header("Content-Length", str(len(jpeg)))
-            self.send_header("Cache-Control", "no-store")
-            self.end_headers()
-            self.wfile.write(jpeg)
-            return
-
-        if path.endswith(".mjpg"):
-            cam = path[:-5]
-            self.send_response(200)
-            self.send_header("Age", "0")
-            self.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
-            self._cors()
-            self.send_header(
-                "Content-Type", "multipart/x-mixed-replace; boundary=frame"
-            )
-            self.end_headers()
-            last = -1
-            try:
-                while not server.stopped():
-                    jpeg, last = server.wait_for(cam, last, timeout=5.0)
-                    if jpeg is None:
-                        continue
-                    self.wfile.write(b"--frame\r\n")
-                    self.wfile.write(b"Content-Type: image/jpeg\r\n")
-                    self.wfile.write(
-                        f"Content-Length: {len(jpeg)}\r\n\r\n".encode()
-                    )
-                    self.wfile.write(jpeg)
-                    self.wfile.write(b"\r\n")
-            except (BrokenPipeError, ConnectionResetError):
-                return  # client navigated away
-            return
-
-        self.send_error(404)
-
-
-class PreviewServer(ThreadingHTTPServer):
-    """Threaded MJPEG server holding the latest annotated JPEG per camera."""
-
-    daemon_threads = True
-    allow_reuse_address = True
-
-    def __init__(self, host: str = "127.0.0.1", port: int = 9101):
-        super().__init__((host, port), _Handler)
+    def __init__(self) -> None:
         self._frames: dict[str, bytes] = {}
         self._seq: dict[str, int] = {}
+        self._ts: dict[str, float] = {}
         self._cond = threading.Condition()
-        self._stopped = False
-        self._host, self._port = host, port
+        self._closed = False
 
-    # ----- producer side (recognition loop) -----
     def publish(self, cam_id: str, jpeg: bytes) -> None:
         with self._cond:
             self._frames[cam_id] = jpeg
             self._seq[cam_id] = self._seq.get(cam_id, 0) + 1
+            self._ts[cam_id] = time.monotonic()
             self._cond.notify_all()
 
-    # ----- consumer side (HTTP handlers) -----
     def latest(self, cam_id: str) -> bytes | None:
         with self._cond:
             return self._frames.get(cam_id)
@@ -187,20 +112,123 @@ class PreviewServer(ThreadingHTTPServer):
                 return None, last_seq
             return self._frames.get(cam_id), seq
 
+    def freshness(self, cam_id: str) -> float | None:
+        """Seconds since the last frame for ``cam_id``, or None if never seen."""
+        with self._cond:
+            ts = self._ts.get(cam_id)
+        return None if ts is None else (time.monotonic() - ts)
+
     def camera_ids(self):
         with self._cond:
             return list(self._frames.keys())
 
-    def stopped(self) -> bool:
-        return self._stopped
+    def closed(self) -> bool:
+        return self._closed
 
-    # ----- lifecycle -----
+    def close(self) -> None:
+        self._closed = True
+        with self._cond:
+            self._cond.notify_all()
+
+
+# ---- MJPEG streaming helpers (shared by both HTTP front-ends) ----
+
+def stream_mjpeg(handler: BaseHTTPRequestHandler, hub: FrameHub, cam_id: str) -> None:
+    """Stream ``cam_id`` as multipart/x-mixed-replace MJPEG until the client
+    disconnects or the hub closes."""
+    handler.send_response(200)
+    handler.send_header("Age", "0")
+    handler.send_header("Cache-Control", "no-store, no-cache, must-revalidate")
+    handler.send_header("Access-Control-Allow-Origin", "*")
+    handler.send_header("Content-Type", "multipart/x-mixed-replace; boundary=frame")
+    handler.end_headers()
+    last = -1
+    try:
+        while not hub.closed():
+            jpeg, last = hub.wait_for(cam_id, last, timeout=5.0)
+            if jpeg is None:
+                continue
+            handler.wfile.write(b"--frame\r\n")
+            handler.wfile.write(b"Content-Type: image/jpeg\r\n")
+            handler.wfile.write(f"Content-Length: {len(jpeg)}\r\n\r\n".encode())
+            handler.wfile.write(jpeg)
+            handler.wfile.write(b"\r\n")
+    except (BrokenPipeError, ConnectionResetError):
+        return  # client navigated away
+
+
+def serve_jpeg(handler: BaseHTTPRequestHandler, hub: FrameHub, cam_id: str) -> None:
+    """Serve the single latest JPEG for ``cam_id`` (404 if none yet)."""
+    jpeg = hub.latest(cam_id)
+    if jpeg is None:
+        handler.send_error(404, "no frame")
+        return
+    handler.send_response(200)
+    handler.send_header("Content-Type", "image/jpeg")
+    handler.send_header("Access-Control-Allow-Origin", "*")
+    handler.send_header("Content-Length", str(len(jpeg)))
+    handler.send_header("Cache-Control", "no-store")
+    handler.end_headers()
+    handler.wfile.write(jpeg)
+
+
+class _Handler(BaseHTTPRequestHandler):
+    def log_message(self, *args):  # silence per-request logging
+        pass
+
+    def do_GET(self):  # noqa: N802 (http.server API)
+        path = self.path.split("?", 1)[0].strip("/")
+        server: PreviewServer = self.server  # type: ignore[assignment]
+        hub = server.hub
+
+        if path in ("", "index.html"):
+            cams = "".join(
+                f'<p><a href="/{c}.mjpg">{c}</a> '
+                f'<img src="/{c}.mjpg" width="320"></p>'
+                for c in hub.camera_ids()
+            )
+            body = (
+                "<!doctype html><meta charset=utf-8>"
+                "<title>Edge previews</title>"
+                "<body style='background:#111;color:#ddd;font-family:sans-serif'>"
+                f"<h3>Annotated previews</h3>{cams or '<p>no frames yet</p>'}"
+            ).encode()
+            self.send_response(200)
+            self.send_header("Content-Type", "text/html; charset=utf-8")
+            self.send_header("Access-Control-Allow-Origin", "*")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+            return
+
+        if path.endswith(".jpg"):
+            serve_jpeg(self, hub, path[:-4])
+            return
+        if path.endswith(".mjpg"):
+            stream_mjpeg(self, hub, path[:-5])
+            return
+
+        self.send_error(404)
+
+
+class PreviewServer(ThreadingHTTPServer):
+    """Threaded MJPEG server (standalone ``edge-client`` run)."""
+
+    daemon_threads = True
+    allow_reuse_address = True
+
+    def __init__(self, host: str = "127.0.0.1", port: int = 9101):
+        super().__init__((host, port), _Handler)
+        self.hub = FrameHub()
+        self._host, self._port = host, port
+
+    def publish(self, cam_id: str, jpeg: bytes) -> None:
+        self.hub.publish(cam_id, jpeg)
+
     def start(self) -> None:
         threading.Thread(target=self.serve_forever, daemon=True).start()
         logger.info("preview server on http://%s:%d", self._host, self._port)
 
     def stop(self) -> None:
-        self._stopped = True
-        with self._cond:
-            self._cond.notify_all()
+        self.hub.close()
         self.shutdown()

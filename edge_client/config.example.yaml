@@ -31,14 +31,20 @@ edge:
   #     source: "rtsp://user:pass@192.168.1.69:554/Streaming/Channels/102"
 
   # --- RTSP options (ignored when camera_source is a webcam index) ---
-  rtsp_transport: "tcp"        # tcp (default, reliable) | udp (clean LAN only)
+  rtsp_transport: "tcp"        # tcp (default, reliable) | udp (LOWER LATENCY on a
+                               # clean LAN, but no retransmit → more artifacts).
+                               # Try udp if the live preview lags.
   rtsp_timeout_seconds: 10     # socket I/O timeout; an unreachable camera then
                                # reconnects (with backoff) instead of hanging.
                                # 0 disables the timeout.
+  # Low-latency capture flags (fflags;nobuffer | reorder_queue_size;0 |
+  # max_delay;0) and a 1-frame OpenCV buffer are applied automatically so the
+  # preview tracks real time. The remaining lag is mostly your camera/app's own
+  # encoder buffering — check its app for a "low latency" / buffer setting.
   # Escape hatch: set the raw OPENCV_FFMPEG_CAPTURE_OPTIONS string verbatim and
-  # the two knobs above are ignored. Use if your FFmpeg build spells the socket
+  # the knobs above are ignored. Use if your FFmpeg build spells the socket
   # timeout 'timeout' instead of 'stimeout':
-  # ffmpeg_capture_options: "rtsp_transport;tcp|timeout;10000000"
+  # ffmpeg_capture_options: "rtsp_transport;tcp|fflags;nobuffer|timeout;10000000"
 
 matching:
   threshold: 0.45  # cosine similarity threshold [0.0, 1.0]
@@ -71,5 +77,13 @@ offline:
 #   fps: 12          # cap preview publish rate (recognition runs full speed)
 #   scale: 0.75      # downscale frames for the preview to save bandwidth
 #   jpeg_quality: 70
+
+# --- Demographics (optional) ---
+# Estimate age + gender per track (buffalo_l genderage; a few ms, no extra deps)
+# and show them on the live preview boxes. Emotion/race are NOT computed here —
+# they're heavy (TensorFlow) and run offline via the console's "Analyze" button
+# / GET /api/demography, which needs:  pip install "facecore[demography]".
+# demographics:
+#   enabled: true
 
 # Logging is stderr-only: INFO by default, DEBUG with --debug.

@@ -1,16 +1,20 @@
 # edge_client — Edge Device Attendance Client
 
 Client application for edge devices (kiosks, cameras) that:
-- Captures frames from local camera (webcam, IP camera, etc.)
-- Analyzes faces locally using facecore
+- Captures frames from one or many local cameras (webcam, IP/RTSP cameras)
+- Analyzes faces locally using facecore (detect → track → embed/match → liveness)
 - Matches against embeddings pulled from Frappe
 - Posts recognition events (with similarity + liveness scores) to the `face_attendance` app — check-ins are created server-side
+- Optionally tags events with **age & gender** (free, from facecore's genderage model)
 - Heartbeats on every sync tick so Frappe can flag unreachable devices
 - Handles offline queuing (SQLite) for network resilience
+- Ships an **operator console** (`edge-console`) — a single-port web UI with a
+  Start/Stop button, live annotated camera feeds, config editing, and on-demand
+  emotion/race analysis
 
 ## Overview
 
-Runs continuously on an edge device, consuming frames and making instant match/no-match decisions. Frappe syncs embeddings to each edge, so matching happens locally (no per-frame network hop).
+Runs continuously on an edge device, consuming frames and making instant match/no-match decisions. Frappe syncs embeddings to each edge, so matching happens locally (no per-frame network hop). A per-camera capture thread feeds an IoU tracker so each face is embedded/matched once per track (not once per frame), and an annotated MJPEG preview is exposed for the console.
 
 ## Installation
 
@@ -38,11 +42,31 @@ edge:
   id: edge-001  # unique per device
   camera_source: 0  # webcam index or RTSP URL (legacy camera_index accepted)
   sync_interval: 300  # pull embeddings every 5 min
+  # optional: multiple cameras on one edge (each becomes its own capture thread)
+  cameras:
+    - id: edge-001
+      source: rtsp://192.168.1.65:8554
+    - id: edge-002
+      source: rtsp://192.168.1.68:8554
 
 matching:
   threshold: 0.45  # cosine similarity [0.0, 1.0]
   liveness_threshold: 0.6  # anti-spoof score
+
+preview:          # annotated MJPEG feed for the operator console
+  enabled: true
+  host: 127.0.0.1
+  port: 9101
+  fps: 12
+  scale: 0.75
+  jpeg_quality: 70
+
+demographics:     # tag recognition events with age & gender (free, no extra deps)
+  enabled: true
 ```
+
+If a `cameras:` list is present each entry runs its own capture thread; otherwise
+the single `camera_source` is used. See `config.example.yaml` for the full set.
 
 ## IP / CCTV cameras
 
@@ -70,17 +94,52 @@ Tips:
 
 ## Running
 
+### Headless client
+
 ```bash
 python -m edge_client.main --config config.yaml --debug
+# or, installed: edge-client --config config.yaml
 ```
 
 The app will:
 1. Load config
 2. Sync embeddings from Frappe (`get_face_data`)
-3. Open camera
-4. Loop: capture frame → detect → liveness gate → match → debounce → POST recognition event
+3. Open camera(s)
+4. Loop: capture frame → detect → track → liveness gate → match → debounce → POST recognition event
 5. Each sync tick: refresh embeddings, flush offline queue, heartbeat
 6. Handle errors: camera failure (retry), Frappe down (queue offline), no match (ignore)
+
+### Operator console
+
+```bash
+edge-console --config config.yaml --host 127.0.0.1 --port 8099
+# then open http://127.0.0.1:8099/face-edge-console.html
+```
+
+One process serves, on a single port (no CORS):
+
+- the console UI (`ui/face-edge-console.html`),
+- a control API the **Start/Stop** button drives
+  (`POST /api/start`, `POST /api/stop`, `GET /api/status`),
+- live annotated previews (`/preview/<camera>.mjpg` and `.jpg`),
+- config editing — the console's **Save** posts to `POST /api/config`, which
+  rewrites `config.yaml` and hot-reloads the engine (models stay loaded, so it's
+  instant) without restarting the process,
+- on-demand demographics — the per-tile **Analyze** button calls
+  `GET /api/demography?camera=<id>` to run emotion/race on the latest frame.
+
+The recognition engine is **not** started at boot — it waits for the Start
+button. Models load once and are kept across stop/start cycles.
+
+### Demographics
+
+- **Age & gender** are free (buffalo_l's `genderage` model) and run inline on the
+  real-time loop when `demographics.enabled: true`; they ride along on each
+  recognition event and show in the console's activity rail.
+- **Emotion & race** are heavier (TensorFlow/Keras via deepface) and run
+  **offline only**, on demand, through `GET /api/demography`. They need the
+  optional extra: `pip install "facecore[demography]"`. Kept off the real-time
+  loop on purpose.
 
 ## Offline Resilience
 
@@ -140,12 +199,23 @@ See `face_attendance` app fixtures for the role + Custom DocPerm definition.
 
 **Total loop: ~150–300ms** → practical 3–7 FPS recognition rate on a single-camera edge.
 
-## Multi-Camera Setup (Future)
+## Multi-Camera
 
-v1 handles one camera per edge. Multi-camera edges (different angles, entrance/exit) planned for phase 2:
-- Thread per camera
-- Shared embedding cache
-- Fused match logic
+One edge can run many cameras (different angles, entrance/exit, multiple floors).
+List them under `edge.cameras` (see Configuration). Each camera:
+- runs its own capture thread with an independent IoU tracker,
+- shares the single embedding cache synced from Frappe,
+- appears as its own live tile in the operator console.
+
+Cross-camera double-counting is handled server-side by the `face_attendance`
+app's per-employee cooldown.
+
+### RTSP latency
+
+RTSP capture is tuned for low latency — FFmpeg is opened with
+`nobuffer`/`reorder_queue_size;0`/`max_delay;0` and OpenCV's capture buffer is
+pinned to one frame — so the console feed tracks real time instead of drifting
+seconds behind. Transport is forced to TCP (see *IP / CCTV cameras* above).
 
 ## Production Deployment
 

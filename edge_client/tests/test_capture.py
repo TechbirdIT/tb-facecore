@@ -42,6 +42,39 @@ def _analyzer(box=True, liveness=0.9, embedding=(1.0, 0.0, 0.0)):
     return a
 
 
+def test_demographics_off_skips_gender_age(tmp_path):
+    """Default config must NOT run the genderage pass (kept off the hot path)."""
+    client = MagicMock()
+    store = Store(str(tmp_path / "q.sqlite"))
+    a = _analyzer()
+    process_frame(np.zeros((4, 4, 3), np.uint8), a, _matcher(), Tracker(),
+                  Debouncer(2), client, store, _cfg(), now=datetime(2026, 1, 1, 9, 0))
+    a.gender_age.assert_not_called()
+
+
+def test_demographics_computed_cached_and_emitted(tmp_path):
+    """With the flag on: gender_age runs once, caches on the track, and the
+    age/gender reach the event sink."""
+    from dataclasses import replace
+
+    client = MagicMock()
+    store = Store(str(tmp_path / "q.sqlite"))
+    a = _analyzer()
+    a.gender_age.return_value = (30, "male")
+    cfg = replace(_cfg(), analyze_demographics=True)
+    seen = []
+
+    def on_event(edge_id, device_id, ts, score, live, age=None, gender=None):
+        seen.append((device_id, age, gender))
+
+    tracks = process_frame(np.zeros((4, 4, 3), np.uint8), a, _matcher(), Tracker(),
+                           Debouncer(2), client, store, cfg,
+                           now=datetime(2026, 1, 1, 9, 0, 0), on_event=on_event)
+    a.gender_age.assert_called_once()
+    assert tracks[0].est_age == 30 and tracks[0].est_gender == "male"
+    assert seen == [("D1", 30, "male")]
+
+
 def test_match_posts_event(tmp_path):
     client = MagicMock()
     store = Store(str(tmp_path / "q.sqlite"))

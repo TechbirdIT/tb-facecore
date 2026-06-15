@@ -45,7 +45,8 @@ def _needs_recognition(track, cfg, now: datetime) -> bool:
 
 
 def process_frame(
-    frame, analyzer, matcher, tracker, debouncer, client, store, cfg, now: datetime
+    frame, analyzer, matcher, tracker, debouncer, client, store, cfg, now: datetime,
+    on_event=None,
 ) -> list:
     """One frame: detect → track → (embed+match once per track / re-verify) →
     debounce → event/enqueue.
@@ -72,6 +73,10 @@ def process_frame(
                 logger.debug("track %d liveness %.2f below threshold", track.id, live)
                 continue
             track.spoof = False
+            if cfg.analyze_demographics:
+                # cheap genderage pass, once per recognition cycle (like embed);
+                # unknown faces get demographics too, so do it before matching.
+                track.est_age, track.est_gender = analyzer.gender_age(frame, face)
             track.identity = matcher.match(analyzer.embed(frame, face), cfg.threshold)
 
         if track.identity is None:
@@ -91,6 +96,11 @@ def process_frame(
             logger.info(
                 "event posted for %s (score %.3f, track %d)", device_id, score, track.id
             )
+            if on_event is not None:
+                on_event(
+                    cfg.edge_id, device_id, timestamp, score, track.last_liveness,
+                    age=track.est_age, gender=track.est_gender,
+                )
         except Exception:
             logger.warning("event post failed for %s; enqueueing offline", device_id)
             store.enqueue_event(
@@ -143,6 +153,7 @@ def _camera_loop(cam_id, source_spec, shared, analyzer, client, store, cfg, stop
     preview = shared.get("preview")
     preview_period = 1.0 / cfg.preview_fps if (preview and cfg.preview_fps) else 0.0
     last_preview = 0.0
+    raw_store = shared.get("raw")  # latest raw frame per camera, for offline demography
 
     logger.info("camera loop started: %s", cam_id)
     try:
@@ -151,9 +162,12 @@ def _camera_loop(cam_id, source_spec, shared, analyzer, client, store, cfg, stop
             if frame is None:
                 time.sleep(0.01)
                 continue
+            if raw_store is not None:
+                raw_store[cam_id] = frame
             tracks = process_frame(
                 frame, analyzer, shared["matcher"], tracker, debouncer,
                 client, store, cam_cfg, now=datetime.now(),
+                on_event=shared.get("on_event"),
             )
             if preview is not None:
                 mono = time.monotonic()

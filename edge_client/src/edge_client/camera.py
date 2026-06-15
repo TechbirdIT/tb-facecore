@@ -12,7 +12,12 @@ logger = logging.getLogger(__name__)
 
 _BACKOFF_START = 1.0
 _BACKOFF_CAP = 30.0
-_DEFAULT_RTSP_OPTIONS = "rtsp_transport;tcp"
+# Low-latency RTSP: don't accumulate an input buffer (fflags;nobuffer), don't
+# hold frames for RTP reordering (reorder_queue_size;0), and no demux delay
+# (max_delay;0). These cut the bulk of OpenCV/FFmpeg's steady-state RTSP latency
+# so the console preview tracks real time instead of trailing ~1s behind.
+_LOW_LATENCY_OPTS = "fflags;nobuffer|reorder_queue_size;0|max_delay;0"
+_DEFAULT_RTSP_OPTIONS = f"rtsp_transport;tcp|{_LOW_LATENCY_OPTS}"
 
 
 def is_rtsp(source: int | str) -> bool:
@@ -24,20 +29,25 @@ def build_ffmpeg_options(
     transport: str = "tcp",
     timeout_seconds: float = 0.0,
     override: str | None = None,
+    low_latency: bool = True,
 ) -> str:
     """Build the OPENCV_FFMPEG_CAPTURE_OPTIONS value for an RTSP stream.
 
     ``transport`` selects rtsp_transport (tcp is correct for almost all cameras;
-    udp only on a clean LAN). ``timeout_seconds`` maps to FFmpeg's ``stimeout``
-    (socket I/O timeout, in microseconds) so a dead or unreachable camera makes
-    ``read()``/open fail and trip the reconnect backoff instead of blocking the
-    capture thread forever. ``override`` short-circuits to a verbatim options
-    string for FFmpeg builds that spell these keys differently (e.g. newer
-    FFmpeg uses ``timeout`` rather than ``stimeout``).
+    udp only on a clean LAN, but lower latency). ``timeout_seconds`` maps to
+    FFmpeg's ``stimeout`` (socket I/O timeout, in microseconds) so a dead or
+    unreachable camera makes ``read()``/open fail and trip the reconnect backoff
+    instead of blocking the capture thread forever. ``low_latency`` adds the
+    nobuffer / no-reorder flags that keep the live preview close to real time.
+    ``override`` short-circuits to a verbatim options string for FFmpeg builds
+    that spell these keys differently (e.g. newer FFmpeg uses ``timeout`` rather
+    than ``stimeout``).
     """
     if override:
         return override
     parts = [f"rtsp_transport;{transport}"]
+    if low_latency:
+        parts.append(_LOW_LATENCY_OPTS)
     if timeout_seconds and timeout_seconds > 0:
         parts.append(f"stimeout;{int(timeout_seconds * 1_000_000)}")
     return "|".join(parts)
@@ -88,8 +98,16 @@ class FrameSource:
                 # Pin the FFmpeg backend for URL streams; let OpenCV pick the
                 # native backend (V4L2/AVFoundation/DSHOW) for webcam indices.
                 if isinstance(s, str):
-                    return cv2.VideoCapture(s, cv2.CAP_FFMPEG)
-                return cv2.VideoCapture(s)
+                    cap = cv2.VideoCapture(s, cv2.CAP_FFMPEG)
+                else:
+                    cap = cv2.VideoCapture(s)
+                # Keep at most one decoded frame queued so read() returns the
+                # freshest frame, not one from the back of a buffer (latency).
+                try:
+                    cap.set(cv2.CAP_PROP_BUFFERSIZE, 1)
+                except Exception:  # pragma: no cover - backend may not support it
+                    pass
+                return cap
         else:
             _open_fn = open_fn
         self._source = source

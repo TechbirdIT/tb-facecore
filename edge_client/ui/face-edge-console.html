@@ -125,8 +125,9 @@ function Header({engine, view, setView, onToggle}){
     abort:{   bd:"rgba(255,70,90,0.55)", bg:"rgba(60,10,18,0.55)", fg:"rgba(255,150,165,1)", glow:"0 0 22px rgba(255,70,90,0.28), inset 0 0 12px rgba(0,0,0,0.7)", ts:"0 0 10px rgba(255,60,80,0.5)", dot:"rgba(255,70,90,1)", stripe:"rgba(255,70,90,0.22)" },
     starting:{ bd:"rgba(255,190,90,0.55)", bg:"rgba(50,34,8,0.55)", fg:"rgba(255,212,150,1)", glow:"0 0 22px rgba(255,190,90,0.24), inset 0 0 12px rgba(0,0,0,0.7)", ts:"0 0 10px rgba(255,190,90,0.5)", dot:"rgba(255,190,90,1)", stripe:"rgba(255,190,90,0.22)" },
   };
-  const vb = VB[running?"abort":(engine==="starting"?"starting":"confirm")];
-  const btnLabel = running ? "Stop engine" : (engine==="starting" ? "Starting…" : "Start engine");
+  const busy = engine==="starting" || engine==="stopping";
+  const vb = VB[running?"abort":(busy?"starting":"confirm")];
+  const btnLabel = running ? "Stop engine" : (engine==="starting" ? "Starting…" : (engine==="stopping" ? "Stopping…" : "Start engine"));
   const navBtn = (v,label)=>{
     const on = view===v;
     return <button className="hnav" onClick={()=>setView(v)} style={{border:0,cursor:"pointer",
@@ -170,11 +171,11 @@ function Header({engine, view, setView, onToggle}){
         {navBtn("config","Configuration")}
       </nav>
 
-      <button className="hbtn" onClick={onToggle} disabled={engine==="starting"}
+      <button className="hbtn" onClick={onToggle} disabled={busy}
         style={{position:"relative",display:"inline-flex",alignItems:"center",gap:10,height:46,padding:"0 22px",
           borderRadius:26,border:`1px solid ${vb.bd}`,background:vb.bg,color:vb.fg,fontFamily:"inherit",
-          fontSize:12,fontWeight:600,letterSpacing:2,textTransform:"uppercase",cursor:engine==="starting"?"default":"pointer",
-          overflow:"hidden",textShadow:vb.ts,boxShadow:vb.glow,backdropFilter:"blur(5px)",opacity:engine==="starting"?0.85:1}}>
+          fontSize:12,fontWeight:600,letterSpacing:2,textTransform:"uppercase",cursor:busy?"default":"pointer",
+          overflow:"hidden",textShadow:vb.ts,boxShadow:vb.glow,backdropFilter:"blur(5px)",opacity:busy?0.85:1}}>
         <span style={{position:"absolute",inset:0,opacity:0.45,pointerEvents:"none",
           background:`repeating-linear-gradient(90deg, ${vb.stripe} 0px, ${vb.stripe} 5px, transparent 5px, transparent 15px)`,
           animation:"hdrift 3s linear infinite",
@@ -189,28 +190,50 @@ function Header({engine, view, setView, onToggle}){
 }
 
 // ---------- camera tile ----------
-function CameraTile({cam, sim, running}){
-  const offline = !running;
-  const reconnecting = !!(sim && sim.status==="reconnecting");
-  const src = cam.preview || cam.hls || "";
-  const isMjpeg = /\.mjpe?g(\?|$)/i.test(src);
-  const isLive = !!src && !offline && !reconnecting;
-  const showSim = !offline && !reconnecting && !isLive;
-  const showCenter = offline || reconnecting;
+function CameraTile({cam, sim, running, control, onAnalyze}){
+  // control = { state, live } when the real engine is driving; null in sim mode.
+  let offline, reconnecting, isLive, isMjpeg, src, showSim;
+  let statusTone, statusLabel, centerTxt, centerSub, feedNote, fps, tracks;
 
-  let statusTone, statusLabel;
-  if(offline){ statusTone="muted"; statusLabel="Offline"; }
-  else if(reconnecting){ statusTone="amber"; statusLabel="Reconnect"; }
-  else { statusTone="green"; statusLabel="Online"; }
+  if(control){
+    const st = control.state;
+    offline = st==="stopped";
+    const live = st==="running" && control.live;
+    reconnecting = (st==="running" && !control.live) || st==="starting" || st==="stopping";
+    isLive = live;
+    isMjpeg = true;                       // engine feed is always annotated MJPEG
+    src = "/preview/"+cam.id+".mjpg";     // same origin as the control server
+    showSim = false;
+    if(offline){ statusTone="muted"; statusLabel="Offline"; centerTxt="— node offline —"; centerSub="press START ENGINE to acquire"; }
+    else if(st==="starting"){ statusTone="amber"; statusLabel="Starting"; centerTxt="starting engine…"; centerSub="loading models · syncing faces"; }
+    else if(st==="stopping"){ statusTone="amber"; statusLabel="Stopping"; centerTxt="stopping…"; centerSub=""; }
+    else if(live){ statusTone="green"; statusLabel="Online"; }
+    else { statusTone="amber"; statusLabel="Connecting"; centerTxt="acquiring feed…"; centerSub="waiting for camera frames"; }
+    feedNote = "real feed · engine boxes";
+    fps = live ? "live" : (offline ? "—" : "0");
+    tracks = "—";
+  } else {
+    offline = !running;
+    reconnecting = !!(sim && sim.status==="reconnecting");
+    src = cam.preview || cam.hls || "";
+    isMjpeg = /\.mjpe?g(\?|$)/i.test(src);
+    isLive = !!src && !offline && !reconnecting;
+    showSim = !offline && !reconnecting && !isLive;
+    if(offline){ statusTone="muted"; statusLabel="Offline"; }
+    else if(reconnecting){ statusTone="amber"; statusLabel="Reconnect"; }
+    else { statusTone="green"; statusLabel="Online"; }
+    centerTxt = offline ? "— node offline —" : "reconnecting…";
+    centerSub = offline ? "press START ENGINE to acquire" : ("rtsp · "+(cam.source.startsWith("rtsp")?"tcp":"local"));
+    feedNote = isMjpeg ? "real feed · engine boxes" : "real feed · HLS video";
+    fps = offline ? "—" : (reconnecting ? "0" : (isLive ? "live" : (sim ? String(sim.fps) : "—")));
+    tracks = (offline||reconnecting) ? 0 : (isLive ? "—" : (sim ? sim.faces.length : 0));
+  }
+  const showCenter = !isLive;
 
   let viewportBg;
   if(offline) viewportBg="repeating-linear-gradient(45deg, rgba(8,16,30,1), rgba(8,16,30,1) 10px, rgba(12,22,40,1) 10px, rgba(12,22,40,1) 20px)";
   else if(isLive) viewportBg="radial-gradient(130% 100% at 50% 0%, rgba(0,46,92,0.55), rgba(2,8,18,1))";
   else viewportBg="radial-gradient(120% 80% at 50% 0%, rgba(10,40,80,0.55), rgba(4,10,22,1))";
-
-  const fps = offline ? "—" : (reconnecting ? "0" : (isLive ? "live" : (sim ? String(sim.fps) : "—")));
-  const tracks = (offline||reconnecting) ? 0 : (isLive ? "—" : (sim ? sim.faces.length : 0));
-  const feedNote = isMjpeg ? "real feed · engine boxes" : "real feed · HLS video";
 
   return (
     <div style={{position:"relative",display:"flex",flexDirection:"column",borderRadius:16,overflow:"hidden",
@@ -230,9 +253,8 @@ function CameraTile({cam, sim, running}){
           background:"linear-gradient(transparent 50%, rgba(0,150,255,0.05) 50%)",backgroundSize:"100% 4px"}}/>
 
         {showCenter && <div style={{position:"absolute",inset:0,display:"grid",placeContent:"center",textAlign:"center",gap:5,padding:"0 14px"}}>
-          <div style={{color:"rgba(120,160,200,0.78)",fontSize:12,letterSpacing:1}}>{offline?"— node offline —":"reconnecting…"}</div>
-          <div style={{color:"rgba(90,130,170,0.6)",fontSize:10.5,letterSpacing:0.5}}>
-            {offline?"press START ENGINE to acquire":("rtsp · "+(cam.source.startsWith("rtsp")?"tcp":"local"))}</div>
+          <div style={{color:"rgba(120,160,200,0.78)",fontSize:12,letterSpacing:1}}>{centerTxt}</div>
+          {centerSub && <div style={{color:"rgba(90,130,170,0.6)",fontSize:10.5,letterSpacing:0.5}}>{centerSub}</div>}
         </div>}
 
         {isLive && <>
@@ -282,7 +304,13 @@ function CameraTile({cam, sim, running}){
         <span>FPS <b style={{color:"rgba(0,255,150,0.9)"}}>{fps}</b></span>
         <span>TRK <b style={{color:"rgba(222,242,255,0.9)"}}>{tracks}</b></span>
         <span style={{flex:1}}/>
-        <span style={{fontSize:10,color:"rgba(90,130,170,0.7)",maxWidth:"56%",overflow:"hidden",
+        {control && isLive && onAnalyze && <button className="hbtn" onClick={()=>onAnalyze(cam.id)}
+          title="Emotion / race (offline, needs facecore[demography])"
+          style={{border:"1px solid rgba(0,200,255,0.35)",background:"rgba(0,30,60,0.4)",
+            color:"rgba(0,200,255,0.9)",fontFamily:"inherit",fontSize:9.5,fontWeight:700,
+            letterSpacing:1,textTransform:"uppercase",padding:"3px 8px",borderRadius:7,
+            cursor:"pointer"}}>Analyze</button>}
+        <span style={{fontSize:10,color:"rgba(90,130,170,0.7)",maxWidth:"40%",overflow:"hidden",
           textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cam.source}</span>
       </div>
     </div>
@@ -290,8 +318,13 @@ function CameraTile({cam, sim, running}){
 }
 
 // ---------- console view ----------
-function ConsoleView({cfg, sim, events, running}){
-  const totalTracks = Object.values(sim).reduce((n,s)=>n+(s.status==="online"?s.faces.length:0),0);
+function ConsoleView({cfg, sim, events, running, control}){
+  const cams = control.mode ? control.cams : cfg.cameras;
+  const totalTracks = control.mode ? "—"
+    : Object.values(sim).reduce((n,s)=>n+(s.status==="online"?s.faces.length:0),0);
+  const tileControl = id => control.mode
+    ? { state: control.state, live: !!(control.camStatus[id] && control.camStatus[id].live) }
+    : null;
   return (
     <div>
       <div style={{display:"flex",alignItems:"baseline",gap:16,borderBottom:"1px solid rgba(0,150,255,0.15)",
@@ -299,7 +332,7 @@ function ConsoleView({cfg, sim, events, running}){
         <span style={{fontSize:11,letterSpacing:2,color:"rgba(0,150,255,0.6)"}}>01</span>
         <h2 style={{margin:0,fontSize:13,letterSpacing:3,textTransform:"uppercase",fontWeight:500,color:"rgba(200,230,255,0.9)"}}>Live recognition grid</h2>
         <div style={{marginLeft:"auto",display:"flex",gap:22,fontSize:12,letterSpacing:1,color:"rgba(150,195,235,0.55)"}}>
-          <span>NODES <b style={{color:"rgba(222,242,255,0.95)"}}>{cfg.cameras.length}</b></span>
+          <span>NODES <b style={{color:"rgba(222,242,255,0.95)"}}>{cams.length}</b></span>
           <span>TRACKS <b style={{color:"rgba(0,255,150,0.95)"}}>{totalTracks}</b></span>
           <span>EVENTS <b style={{color:"rgba(222,242,255,0.95)"}}>{events.length}</b></span>
         </div>
@@ -307,8 +340,8 @@ function ConsoleView({cfg, sim, events, running}){
 
       <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 360px",gap:20,alignItems:"start"}}>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(330px,1fr))",gap:18}}>
-          {cfg.cameras.map(cam=><CameraTile key={cam.id} cam={cam} sim={sim[cam.id]} running={running}/>)}
-          {cfg.cameras.length===0 && <div style={{gridColumn:"1/-1",padding:46,textAlign:"center",
+          {cams.map(cam=><CameraTile key={cam.id} cam={cam} sim={sim[cam.id]} running={running} control={tileControl(cam.id)} onAnalyze={control.onAnalyze}/>)}
+          {cams.length===0 && <div style={{gridColumn:"1/-1",padding:46,textAlign:"center",
             color:"rgba(110,150,190,0.6)",fontSize:12,letterSpacing:1,border:"1px dashed rgba(0,150,255,0.2)",borderRadius:16}}>
             NO NODES CONFIGURED · add cameras in Configuration</div>}
         </div>
@@ -330,7 +363,7 @@ function ConsoleView({cfg, sim, events, running}){
                     animation:"hslide .25s ease"}}>
                   <span style={{fontWeight:600,fontSize:13,color:"rgba(210,235,255,0.95)"}}>{ev.name}</span>
                   <span style={{fontSize:11,color:"rgba(110,150,190,0.7)"}}>{ev.time}</span>
-                  <span style={{fontSize:10.5,letterSpacing:0.5,color:"rgba(150,195,235,0.55)",textTransform:"uppercase"}}>{ev.cam} · {ev.area}</span>
+                  <span style={{fontSize:10.5,letterSpacing:0.5,color:"rgba(150,195,235,0.55)",textTransform:"uppercase"}}>{ev.cam} · {ev.area}{ev.gender?` · ${ev.gender[0].toUpperCase()}~${ev.age!=null?ev.age:"?"}`:""}</span>
                   <span style={{fontSize:11,justifySelf:"end"}}>
                     <span style={{color:"rgba(0,200,255,0.95)"}}>{ev.score.toFixed(2)}</span>
                     <span style={{color:"rgba(110,150,190,0.55)"}}> / {ev.liveness.toFixed(2)}</span></span>
@@ -468,17 +501,36 @@ function App(){
   const [sim,setSim]=useState({});
   const [events,setEvents]=useState([]);
   const [toast,setToast]=useState(null);
+  const [control,setControl]=useState(null); // null = probing; {available, status}
   const seq=useRef(0);
-  const running=engine==="running";
 
-  useEffect(()=>{ if(engine!=="starting") return;
+  const api=(path,method)=>fetch(path,{method:method||"GET"}).then(r=>r.ok?r.json():Promise.reject(r.status));
+
+  // Probe the control API once. If reachable → real mode (Start launches the
+  // engine, status is polled). If not (opened via a plain static server) →
+  // simulation mode, exactly as before.
+  useEffect(()=>{ let alive=true;
+    api("/api/status").then(st=>{ if(alive) setControl({available:true,status:st}); })
+      .catch(()=>{ if(alive) setControl({available:false}); });
+    return ()=>{alive=false;}; },[]);
+
+  const controlMode = !!(control && control.available);
+  const engineState = controlMode ? ((control.status&&control.status.state)||"stopped") : engine;
+  const running = engineState==="running";
+
+  // Poll real engine status while connected.
+  useEffect(()=>{ if(!controlMode) return;
+    const iv=setInterval(()=>{ api("/api/status").then(st=>setControl(c=>({...c,status:st}))).catch(()=>{}); },1000);
+    return ()=>clearInterval(iv); },[controlMode]);
+
+  useEffect(()=>{ if(controlMode || engine!=="starting") return;
     const t=setTimeout(()=>{
       const s={}; cfg.cameras.forEach(c=>{ s[c.id]={status:"online",fps:Math.round(rnd(11,15)),faces:[],rc:0}; });
       setSim(s); setEngine("running");
-    },1900); return ()=>clearTimeout(t); },[engine]);
+    },1900); return ()=>clearTimeout(t); },[engine,controlMode]);
 
   useEffect(()=>{
-    if(!running) return;
+    if(controlMode || !running) return;
     const iv=setInterval(()=>{
       setSim(prev=>{
         const next={}; const newEvents=[];
@@ -508,11 +560,57 @@ function App(){
       });
     },800);
     return ()=>clearInterval(iv);
-  },[running, cfg.cameras, cfg.matching.threshold, cfg.matching.liveness_threshold]);
+  },[controlMode, running, cfg.cameras, cfg.matching.threshold, cfg.matching.liveness_threshold]);
 
-  const save=()=>{ localStorage.setItem(LS_KEY,JSON.stringify(cfg)); setToast("Configuration saved");
-    setTimeout(()=>setToast(null),2200); };
-  const toggle=()=>{ if(engine==="stopped")setEngine("starting"); else {setEngine("stopped");setSim({});setEvents([]);} };
+  const save=()=>{
+    localStorage.setItem(LS_KEY,JSON.stringify(cfg));
+    if(controlMode){
+      // push the config to the engine: rewrites config.yaml + hot-reloads cameras
+      setToast("Applying to engine (rewriting config.yaml, reloading cameras)…");
+      fetch("/api/config",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(cfg)})
+        .then(r=>r.ok?r.json():r.json().then(e=>Promise.reject(e.error||r.status)))
+        .then(st=>{ setControl(c=>({...c,status:st})); setToast("Configuration applied — engine reloaded"); setTimeout(()=>setToast(null),3500); })
+        .catch(e=>{ setToast("Apply failed: "+e); setTimeout(()=>setToast(null),5000); });
+    } else {
+      setToast("Configuration saved (browser only — engine not connected)");
+      setTimeout(()=>setToast(null),2600);
+    }
+  };
+  const toggle=()=>{
+    if(controlMode){
+      const start = engineState==="stopped";
+      setControl(c=>({...c,status:{...(c.status||{}),state: start?"starting":"stopping"}})); // optimistic
+      api(start?"/api/start":"/api/stop","POST").then(st=>setControl(c=>({...c,status:st}))).catch(()=>{});
+    } else if(engine==="stopped"){ setEngine("starting"); }
+    else { setEngine("stopped"); setSim({}); setEvents([]); }
+  };
+
+  // display helpers (real status when connected, else local sim)
+  const areaOf = id => { const c=cfg.cameras.find(x=>x.id===id); return c&&c.area?c.area:"—"; };
+  const camStatus = {};
+  if(controlMode && control.status){ (control.status.cameras||[]).forEach(c=>{ camStatus[c.id]=c; }); }
+  // In control mode the live grid reflects the cameras the engine actually runs
+  // (from config.yaml), enriched with area names from the local config by id.
+  const engineCams = (controlMode && control.status)
+    ? ((control.status.cameras)||[]).map(c=>({id:c.id, area:areaOf(c.id), source:c.source, preview:""}))
+    : [];
+  const displayEvents = controlMode
+    ? ((control.status&&control.status.events)||[]).map((ev,i)=>({key:(ev.time||"")+ev.cam+i,name:ev.name,cam:ev.cam,area:areaOf(ev.cam),time:ev.time,score:ev.score,liveness:ev.liveness,age:ev.age,gender:ev.gender}))
+    : events;
+
+  // offline emotion/race analysis (separate from the live loop) via the engine
+  const analyzeDemography = (camId)=>{
+    setToast("Analyzing "+camId+" (emotion/race)…");
+    api(`/api/demography?camera=${encodeURIComponent(camId)}`)
+      .then(r=>{
+        if(r.error){ setToast("Demography: "+String(r.error).split("\n")[0]); }
+        else if(!r.faces || !r.faces.length){ setToast("No face detected on "+camId); }
+        else { const f=r.faces[0]; setToast(`${camId} → emotion: ${f.emotion} · race: ${f.race}`); }
+        clearTimeout(window.__demoT); window.__demoT=setTimeout(()=>setToast(null), 6000);
+      })
+      .catch(()=>{ setToast("Demography request failed"); setTimeout(()=>setToast(null), 4000); });
+  };
+  const controlProp = { mode:controlMode, state:engineState, camStatus, cams:engineCams, onAnalyze:analyzeDemography };
 
   return (
     <div style={{position:"relative",minHeight:"100vh",fontFamily:"'JetBrains Mono',ui-monospace,monospace",
@@ -525,10 +623,10 @@ function App(){
         background:"radial-gradient(circle at 50% -10%, rgba(0,120,255,0.06), transparent 55%)"}}/>
 
       <div style={{position:"relative",zIndex:1}}>
-        <Header engine={engine} view={view} setView={setView} onToggle={toggle}/>
+        <Header engine={engineState} view={view} setView={setView} onToggle={toggle}/>
         <main style={{maxWidth:1500,margin:"0 auto",padding:"24px 26px 64px"}}>
           {view==="console"
-            ? <ConsoleView cfg={cfg} sim={sim} events={events} running={running}/>
+            ? <ConsoleView cfg={cfg} sim={sim} events={displayEvents} running={running} control={controlProp}/>
             : <ConfigView cfg={cfg} setCfg={setCfg} onSave={save}/>}
         </main>
       </div>

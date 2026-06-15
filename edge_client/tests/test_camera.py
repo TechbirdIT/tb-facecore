@@ -4,6 +4,8 @@ import os
 from edge_client.camera import (
     _BACKOFF_CAP,
     _BACKOFF_START,
+    _DEFAULT_RTSP_OPTIONS,
+    _LOW_LATENCY_OPTS,
     FrameSource,
     _mask_source,
     build_ffmpeg_options,
@@ -98,7 +100,7 @@ def test_backoff_resets_after_success():
 def test_rtsp_source_forces_tcp_transport(monkeypatch):
     monkeypatch.delenv("OPENCV_FFMPEG_CAPTURE_OPTIONS", raising=False)
     _source([FakeCap([])], source="rtsp://cam.local:554/stream")
-    assert os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] == "rtsp_transport;tcp"
+    assert os.environ["OPENCV_FFMPEG_CAPTURE_OPTIONS"] == _DEFAULT_RTSP_OPTIONS
 
 
 def test_int_source_does_not_touch_ffmpeg_env(monkeypatch):
@@ -164,19 +166,23 @@ def test_is_rtsp():
 
 
 def test_build_ffmpeg_options_default_tcp_no_timeout():
-    assert build_ffmpeg_options() == "rtsp_transport;tcp"
+    assert build_ffmpeg_options() == f"rtsp_transport;tcp|{_LOW_LATENCY_OPTS}"
 
 
 def test_build_ffmpeg_options_with_timeout_microseconds():
     # 10s -> 10_000_000 microseconds for FFmpeg stimeout
     assert (
         build_ffmpeg_options("tcp", 10.0)
-        == "rtsp_transport;tcp|stimeout;10000000"
+        == f"rtsp_transport;tcp|{_LOW_LATENCY_OPTS}|stimeout;10000000"
     )
 
 
 def test_build_ffmpeg_options_udp_transport():
-    assert build_ffmpeg_options("udp", 0) == "rtsp_transport;udp"
+    assert build_ffmpeg_options("udp", 0) == f"rtsp_transport;udp|{_LOW_LATENCY_OPTS}"
+
+
+def test_build_ffmpeg_options_low_latency_can_be_disabled():
+    assert build_ffmpeg_options("tcp", 0, low_latency=False) == "rtsp_transport;tcp"
 
 
 def test_build_ffmpeg_options_override_wins_verbatim():

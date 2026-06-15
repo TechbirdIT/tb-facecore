@@ -41,6 +41,19 @@ def test_missing_extra_raises_with_install_hint():
     assert "facecore[demography]" in str(exc.value)
 
 
+@pytest.mark.skipif(_HAS_DEEPFACE, reason="deepface installed; missing-extra path N/A")
+def test_warmup_without_extra_raises_install_hint():
+    with pytest.raises(FaceCoreError) as exc:
+        demography.warmup(actions=("emotion",))
+    assert "facecore[demography]" in str(exc.value)
+
+
+@pytest.mark.skipif(not _HAS_DEEPFACE, reason="needs the facecore[demography] extra")
+def test_warmup_builds_models_so_next_call_is_fast():
+    # warmup pre-builds the models; it must complete without raising
+    demography.warmup(actions=("emotion", "race"))
+
+
 @pytest.mark.skipif(not _HAS_DEEPFACE, reason="needs the facecore[demography] extra")
 def test_emotion_race_on_real_face():
     # only runs where the optional extra is installed

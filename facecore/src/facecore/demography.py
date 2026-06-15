@@ -56,6 +56,22 @@ def _native(obj):
     return obj
 
 
+def warmup(actions: tuple[str, ...] = ("emotion", "race")) -> None:
+    """Pre-build the heavy deepface models so the first real ``analyze`` is fast.
+
+    deepface lazily constructs each attribute model on first use (several seconds
+    on CPU). Calling this once — ideally in a background thread at startup — moves
+    that cost off the user's first click. Runs a throwaway inference on a tiny
+    blank image (``enforce_detection=False``) to force the build.
+
+    Raises ``FaceCoreError`` if the optional extra is not installed; callers that
+    warm opportunistically should catch and ignore that.
+    """
+    import numpy as np
+
+    analyze(np.zeros((64, 64, 3), np.uint8), actions=actions)
+
+
 def analyze(
     source: object, actions: tuple[str, ...] = ("emotion", "race")
 ) -> list[dict]:

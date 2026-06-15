@@ -26,6 +26,41 @@ def test_demography_no_frame_yet():
     assert "error" in r and "no frame" in r["error"]
 
 
+def test_demography_serializes_overlapping_calls(monkeypatch):
+    # overlapping Analyze clicks must not run heavy deepface inference
+    # concurrently — the engine holds _demo_lock around analyze()
+    import threading
+
+    from facecore import demography as real_demography
+
+    e = Engine(_cfg(), "buffalo_l")
+    e._raw["edge-001"] = np.zeros((8, 8, 3), np.uint8)
+
+    concurrency = {"now": 0, "max": 0}
+    gate = threading.Event()
+
+    def fake_analyze(frame, actions=("emotion", "race")):
+        concurrency["now"] += 1
+        concurrency["max"] = max(concurrency["max"], concurrency["now"])
+        gate.wait(0.5)  # hold the "model" so a racing caller would overlap if unlocked
+        concurrency["now"] -= 1
+        return [{"emotion": "happy", "race": "white"}]
+
+    monkeypatch.setattr(real_demography, "analyze", fake_analyze)
+
+    threads = [
+        threading.Thread(target=e.demography, args=("edge-001",)) for _ in range(3)
+    ]
+    for t in threads:
+        t.start()
+    gate.set()
+    for t in threads:
+        t.join()
+
+    assert concurrency["max"] == 1  # never more than one analyze at a time
+    assert e._demo_warmed is True
+
+
 @pytest.mark.skipif(_HAS_DEEPFACE, reason="deepface installed; missing-extra path N/A")
 def test_demography_missing_extra_returns_install_hint():
     e = Engine(_cfg(), "buffalo_l")

@@ -53,6 +53,10 @@ class Engine:
         self._cameras = resolve_cameras(cfg)
         # latest raw (un-annotated) frame per camera, for offline demography
         self._raw: dict[str, object] = {}
+        # serialize heavy deepface demography calls (TF on CPU) so overlapping
+        # Analyze clicks queue instead of contending for cores
+        self._demo_lock = threading.Lock()
+        self._demo_warmed = False
 
     # ----- introspection -----
     def status(self) -> dict:
@@ -158,10 +162,35 @@ class Engine:
             with self._lock:
                 self._state = "running"
             logger.info("engine running: %d camera(s)", len(self._cameras))
+            self._warm_demography_async()
         except Exception as exc:  # noqa: BLE001 - surface any startup failure to the UI
             logger.exception("engine failed to start")
             with self._lock:
                 self._state, self._error = "stopped", str(exc)
+
+    def _warm_demography_async(self) -> None:
+        """Pre-build the deepface emotion/race models in the background so the
+        first console Analyze click is fast instead of paying ~6s of cold model
+        load. No-op if the optional extra isn't installed or it's already warm.
+        """
+        if self._demo_warmed:
+            return
+
+        def _warm():
+            try:
+                from facecore import demography as _demography
+
+                with self._demo_lock:
+                    if self._demo_warmed:
+                        return
+                    logger.info("warming demography models…")
+                    _demography.warmup()
+                    self._demo_warmed = True
+                    logger.info("demography models ready")
+            except Exception:  # noqa: BLE001 - extra not installed / load failure
+                logger.debug("demography warmup skipped", exc_info=True)
+
+        threading.Thread(target=_warm, daemon=True).start()
 
     def _sync_loop(self, client, store, shared) -> None:
         last_sync = time.monotonic()
@@ -222,7 +251,11 @@ class Engine:
         from facecore import demography as _demography
 
         try:
-            faces = _demography.analyze(frame, actions=actions)
+            # serialize: the first call builds models (~6s); overlapping clicks
+            # would otherwise each spawn a heavy concurrent TF inference
+            with self._demo_lock:
+                faces = _demography.analyze(frame, actions=actions)
+                self._demo_warmed = True
             return {"camera": cam_id, "faces": faces}
         except Exception as exc:  # noqa: BLE001 - surface install hint / failures to UI
             return {"camera": cam_id, "error": str(exc)}

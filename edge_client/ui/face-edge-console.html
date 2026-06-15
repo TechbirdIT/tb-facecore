@@ -190,7 +190,7 @@ function Header({engine, view, setView, onToggle}){
 }
 
 // ---------- camera tile ----------
-function CameraTile({cam, sim, running, control, onAnalyze}){
+function CameraTile({cam, sim, running, control, onAnalyze, analyzing}){
   // control = { state, live } when the real engine is driving; null in sim mode.
   let offline, reconnecting, isLive, isMjpeg, src, showSim;
   let statusTone, statusLabel, centerTxt, centerSub, feedNote, fps, tracks;
@@ -304,12 +304,13 @@ function CameraTile({cam, sim, running, control, onAnalyze}){
         <span>FPS <b style={{color:"rgba(0,255,150,0.9)"}}>{fps}</b></span>
         <span>TRK <b style={{color:"rgba(222,242,255,0.9)"}}>{tracks}</b></span>
         <span style={{flex:1}}/>
-        {control && isLive && onAnalyze && <button className="hbtn" onClick={()=>onAnalyze(cam.id)}
+        {control && isLive && onAnalyze && <button className="hbtn" onClick={()=>!analyzing&&onAnalyze(cam.id)}
+          disabled={analyzing}
           title="Emotion / race (offline, needs facecore[demography])"
           style={{border:"1px solid rgba(0,200,255,0.35)",background:"rgba(0,30,60,0.4)",
-            color:"rgba(0,200,255,0.9)",fontFamily:"inherit",fontSize:9.5,fontWeight:700,
+            color:analyzing?"rgba(0,200,255,0.5)":"rgba(0,200,255,0.9)",fontFamily:"inherit",fontSize:9.5,fontWeight:700,
             letterSpacing:1,textTransform:"uppercase",padding:"3px 8px",borderRadius:7,
-            cursor:"pointer"}}>Analyze</button>}
+            cursor:analyzing?"progress":"pointer"}}>{analyzing?"Analyzing…":"Analyze"}</button>}
         <span style={{fontSize:10,color:"rgba(90,130,170,0.7)",maxWidth:"40%",overflow:"hidden",
           textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{cam.source}</span>
       </div>
@@ -340,7 +341,7 @@ function ConsoleView({cfg, sim, events, running, control}){
 
       <div style={{display:"grid",gridTemplateColumns:"minmax(0,1fr) 360px",gap:20,alignItems:"start"}}>
         <div style={{display:"grid",gridTemplateColumns:"repeat(auto-fill,minmax(330px,1fr))",gap:18}}>
-          {cams.map(cam=><CameraTile key={cam.id} cam={cam} sim={sim[cam.id]} running={running} control={tileControl(cam.id)} onAnalyze={control.onAnalyze}/>)}
+          {cams.map(cam=><CameraTile key={cam.id} cam={cam} sim={sim[cam.id]} running={running} control={tileControl(cam.id)} onAnalyze={control.onAnalyze} analyzing={!!(control.analyzing&&control.analyzing.has(cam.id))}/>)}
           {cams.length===0 && <div style={{gridColumn:"1/-1",padding:46,textAlign:"center",
             color:"rgba(110,150,190,0.6)",fontSize:12,letterSpacing:1,border:"1px dashed rgba(0,150,255,0.2)",borderRadius:16}}>
             NO NODES CONFIGURED · add cameras in Configuration</div>}
@@ -501,6 +502,7 @@ function App(){
   const [sim,setSim]=useState({});
   const [events,setEvents]=useState([]);
   const [toast,setToast]=useState(null);
+  const [analyzing,setAnalyzing]=useState(()=>new Set()); // camera ids with an in-flight Analyze
   const [control,setControl]=useState(null); // null = probing; {available, status}
   const seq=useRef(0);
 
@@ -600,7 +602,11 @@ function App(){
 
   // offline emotion/race analysis (separate from the live loop) via the engine
   const analyzeDemography = (camId)=>{
-    setToast("Analyzing "+camId+" (emotion/race)…");
+    if(analyzing.has(camId)) return; // ignore re-clicks while one is in flight
+    setAnalyzing(s=>{ const n=new Set(s); n.add(camId); return n; });
+    const done=()=>setAnalyzing(s=>{ const n=new Set(s); n.delete(camId); return n; });
+    // first call builds the models server-side (~6s); say so instead of looking dead
+    setToast("Analyzing "+camId+" (emotion/race — first run loads models, ~10s)…");
     api(`/api/demography?camera=${encodeURIComponent(camId)}`)
       .then(r=>{
         if(r.error){ setToast("Demography: "+String(r.error).split("\n")[0]); }
@@ -608,9 +614,10 @@ function App(){
         else { const f=r.faces[0]; setToast(`${camId} → emotion: ${f.emotion} · race: ${f.race}`); }
         clearTimeout(window.__demoT); window.__demoT=setTimeout(()=>setToast(null), 6000);
       })
-      .catch(()=>{ setToast("Demography request failed"); setTimeout(()=>setToast(null), 4000); });
+      .catch(()=>{ setToast("Demography request failed"); setTimeout(()=>setToast(null), 4000); })
+      .finally(done);
   };
-  const controlProp = { mode:controlMode, state:engineState, camStatus, cams:engineCams, onAnalyze:analyzeDemography };
+  const controlProp = { mode:controlMode, state:engineState, camStatus, cams:engineCams, onAnalyze:analyzeDemography, analyzing };
 
   return (
     <div style={{position:"relative",minHeight:"100vh",fontFamily:"'JetBrains Mono',ui-monospace,monospace",

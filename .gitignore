@@ -34,3 +34,6 @@ docs/superpowers/
 .agents/
 .claude/
 skills-lock.json
+
+# OMC tooling state
+.omc/

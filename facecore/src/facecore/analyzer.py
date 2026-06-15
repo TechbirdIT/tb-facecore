@@ -5,12 +5,28 @@ from pathlib import Path
 import cv2
 import numpy as np
 
+from facecore import metrics
+from facecore.image_io import load_image
 from facecore.liveness import LivenessDetector
 from facecore.model_download import DEFAULT_LIVENESS_PATH, ensure_liveness_model
 from facecore.models import DetectedFace, FaceBox
 
 MODEL_VERSION = "buffalo_l"
 _DEFAULT_LIVENESS_PATH = DEFAULT_LIVENESS_PATH
+
+
+def _age_gender(face: object) -> tuple[int | None, str | None]:
+    """Read (age, gender) off an InsightFace Face populated by the genderage model.
+
+    Returns (None, None) if genderage did not run. ``gender`` is normalized to
+    ``"male"`` / ``"female"`` (InsightFace encodes gender as 1 = male, 0 = female).
+    """
+    age = getattr(face, "age", None)
+    gender = getattr(face, "gender", None)
+    age_out = int(age) if age is not None else None
+    if gender is None:
+        return age_out, None
+    return age_out, ("male" if int(gender) == 1 else "female")
 
 
 class FaceAnalyzer:
@@ -48,14 +64,14 @@ class FaceAnalyzer:
             if device == "cuda"
             else ["CPUExecutionProvider"]
         )
-        # Load only detection + recognition: genderage and the 2D/3D landmark
-        # models in buffalo_l are unused here, and skipping them speeds both load
-        # and per-call inference. det_model + recognition are what detect()/embed()
-        # and analyze() rely on.
+        # Load detection + recognition + genderage. The genderage model already
+        # ships inside buffalo_l (no extra download) and is cheap; it gives age +
+        # gender for free in analyze(). The 2D/3D landmark models stay disabled —
+        # unused here, and skipping them speeds load and per-call inference.
         self._app = FaceAnalysis(
             name=MODEL_VERSION,
             providers=providers,
-            allowed_modules=["detection", "recognition"],
+            allowed_modules=["detection", "recognition", "genderage"],
         )
         self._app.prepare(ctx_id=0 if device == "cuda" else -1, det_thresh=det_thresh)
         self._liveness = LivenessDetector(liveness_model_path, providers)
@@ -132,15 +148,38 @@ class FaceAnalyzer:
             if float(face.det_score) < self.det_thresh:
                 continue
             bbox = [float(v) for v in face.bbox]
+            age, gender = _age_gender(face)
             results.append(
                 DetectedFace(
                     bbox=bbox,
                     embedding=[float(v) for v in face.normed_embedding],
                     det_score=float(face.det_score),
                     liveness_score=self._liveness.score(image_array, bbox),
+                    age=age,
+                    gender=gender,
                 )
             )
         return results
+
+    def gender_age(self, image_array: np.ndarray, face: FaceBox) -> tuple[int, str]:
+        """Estimate (age, gender) for one detected face — for the detect/embed split.
+
+        Runs buffalo_l's genderage model on demand (like :meth:`embed`), so the
+        tracking loop can attach demographics once per track instead of every
+        frame. ``gender`` is ``"male"`` or ``"female"``. ``analyze()`` already
+        fills these in; use this only on the cheap detect()/embed() path.
+        """
+        from insightface.app.common import Face  # type: ignore[import-untyped]
+
+        kps = np.asarray(face.kps, dtype=np.float32) if face.kps is not None else None
+        rec_face = Face(
+            bbox=np.asarray(face.bbox, dtype=np.float32),
+            kps=kps,
+            det_score=face.det_score,
+        )
+        self._app.models["genderage"].get(image_array, rec_face)
+        age, gender = _age_gender(rec_face)
+        return (age or 0, gender or "unknown")
 
     def analyze_image_file(self, filepath: str) -> list[DetectedFace]:
         """Detect and analyze faces from a file path.
@@ -162,6 +201,73 @@ class FaceAnalyzer:
         if image is None:
             raise ValueError(f"not a readable image: {filepath}")
         return self.analyze(image)
+
+    def extract_faces(
+        self, source: object, align: bool = True, size: int = 112
+    ) -> list[dict]:
+        """Detect faces in ``source`` and return their crops.
+
+        ``source`` is anything :func:`facecore.image_io.load_image` accepts
+        (ndarray / path / URL / base64 / bytes). With ``align=True`` (default)
+        each crop is the ArcFace-aligned ``size``×``size`` chip (the same
+        alignment used for embedding — ideal for storing the enrolled face);
+        with ``align=False`` it is the raw bbox crop. Returns one dict per face:
+        ``{"face": ndarray, "facial_area": {x,y,w,h}, "confidence": float}``.
+        """
+        img = load_image(source)
+        self._check_image(img)
+        out: list[dict] = []
+        for fb in self.detect(img):
+            x1, y1, x2, y2 = (int(v) for v in fb.bbox)
+            if align and fb.kps is not None:
+                from insightface.utils import face_align  # type: ignore[import-untyped]
+
+                crop = face_align.norm_crop(
+                    img, np.asarray(fb.kps, dtype=np.float32), image_size=size
+                )
+            else:
+                xa, ya = max(0, x1), max(0, y1)
+                crop = img[ya : max(ya + 1, y2), xa : max(xa + 1, x2)].copy()
+            out.append(
+                {
+                    "face": crop,
+                    "facial_area": {"x": x1, "y": y1, "w": x2 - x1, "h": y2 - y1},
+                    "confidence": fb.det_score,
+                }
+            )
+        return out
+
+    def distance(
+        self, emb1: list[float], emb2: list[float], metric: str = "cosine"
+    ) -> float:
+        """Distance between two embeddings (lower = more similar). See ``metrics``."""
+        return metrics.find_distance(emb1, emb2, metric)
+
+    def verify(
+        self,
+        emb1: list[float],
+        emb2: list[float],
+        metric: str = "cosine",
+        threshold: float | None = None,
+    ) -> dict:
+        """Same-person check via deepface-style thresholds; see ``metrics.verify``."""
+        return metrics.verify(
+            emb1, emb2, metric=metric, model_name=MODEL_VERSION, threshold=threshold
+        )
+
+    def demography(
+        self, source: object, actions: tuple[str, ...] = ("emotion", "race")
+    ) -> list[dict]:
+        """Emotion / race demography — requires the ``facecore[demography]`` extra.
+
+        Thin delegate to :mod:`facecore.demography` (deepface backend). Age/gender
+        are already available for free via :meth:`analyze` / :meth:`gender_age`;
+        use this for emotion and race. Raises ``FaceCoreError`` with an install
+        hint if the extra isn't installed.
+        """
+        from facecore import demography as _demography
+
+        return _demography.analyze(source, actions=actions)
 
     def cosine_similarity(self, emb1: list[float], emb2: list[float]) -> float:
         """Compute cosine similarity between two embeddings.

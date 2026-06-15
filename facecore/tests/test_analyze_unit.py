@@ -1,5 +1,6 @@
 # facecore/tests/test_analyze_unit.py
 import numpy as np
+import pytest
 
 from facecore.analyzer import FaceAnalyzer
 from facecore.models import DetectedFace
@@ -111,7 +112,7 @@ def test_detect_returns_faceboxes_and_filters_below_thresh():
     out = _analyzer_dm(bboxes, kpss).detect(np.zeros((100, 100, 3), dtype=np.uint8))
     assert len(out) == 1  # second box below det_thresh is dropped
     assert isinstance(out[0], FaceBox)
-    assert out[0].det_score == 0.9
+    assert out[0].det_score == pytest.approx(0.9)  # float32 -> ~0.8999999
     assert out[0].bbox == [0.0, 0.0, 10.0, 10.0]
     assert out[0].kps is not None
 

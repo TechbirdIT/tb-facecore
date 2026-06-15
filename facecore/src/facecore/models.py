@@ -40,6 +40,12 @@ class DetectedFace:
     """Anti-spoof probability [0.0, 1.0]. MiniFASNet output.
     > 0.5 typically indicates a live face; < 0.5 indicates a print/screen."""
 
+    age: int | None = None
+    """Estimated age in years (buffalo_l genderage), or None if not computed."""
+
+    gender: str | None = None
+    """Estimated gender: "male" / "female" (buffalo_l genderage), or None."""
+
     @classmethod
     def from_dict(cls, data: dict[str, Any]) -> "DetectedFace":
         """Construct from dictionary (e.g., from API response)."""
@@ -48,6 +54,8 @@ class DetectedFace:
             embedding=data["embedding"],
             det_score=data["det_score"],
             liveness_score=data["liveness_score"],
+            age=data.get("age"),
+            gender=data.get("gender"),
         )
 
     def to_dict(self) -> dict[str, Any]:
@@ -57,4 +65,6 @@ class DetectedFace:
             "embedding": self.embedding,
             "det_score": self.det_score,
             "liveness_score": self.liveness_score,
+            "age": self.age,
+            "gender": self.gender,
         }

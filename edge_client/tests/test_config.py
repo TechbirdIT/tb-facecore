@@ -134,3 +134,154 @@ def test_missing_required_key_raises(tmp_path):
     )
     with pytest.raises(KeyError):
         load_config(path)
+
+
+def test_rtsp_options_default_when_absent(tmp_path):
+    path = _write(
+        tmp_path,
+        """
+        frappe:
+          url: http://localhost:8000
+          site: site1.localhost
+          api_key: k
+          api_secret: s
+        edge:
+          id: edge-001
+          camera_source: 0
+          sync_interval: 300
+        matching:
+          threshold: 0.45
+          liveness_threshold: 0.6
+          min_det_score: 0.5
+          debounce_minutes: 2
+        offline:
+          db_path: /tmp/queue.sqlite
+    """,
+    )
+    cfg = load_config(path)
+    assert cfg.rtsp_transport == "tcp"
+    assert cfg.rtsp_timeout_seconds == 10.0
+    assert cfg.ffmpeg_capture_options is None
+
+
+def test_rtsp_options_parsed(tmp_path):
+    path = _write(
+        tmp_path,
+        """
+        frappe:
+          url: http://localhost:8000
+          site: site1.localhost
+          api_key: k
+          api_secret: s
+        edge:
+          id: edge-001
+          camera_source: rtsp://admin:pass@192.168.1.64:554/Streaming/Channels/102
+          sync_interval: 300
+          rtsp_transport: udp
+          rtsp_timeout_seconds: 5
+          ffmpeg_capture_options: "rtsp_transport;tcp|timeout;5000000"
+        matching:
+          threshold: 0.45
+          liveness_threshold: 0.6
+          min_det_score: 0.5
+          debounce_minutes: 2
+        offline:
+          db_path: /tmp/queue.sqlite
+    """,
+    )
+    cfg = load_config(path)
+    assert cfg.rtsp_transport == "udp"
+    assert cfg.rtsp_timeout_seconds == 5
+    assert cfg.ffmpeg_capture_options == "rtsp_transport;tcp|timeout;5000000"
+
+
+def test_tracking_defaults_when_section_absent(tmp_path):
+    path = _write(
+        tmp_path,
+        """
+        frappe: {url: u, site: s, api_key: k, api_secret: sec}
+        edge: {id: e, camera_source: 0, sync_interval: 300}
+        matching:
+          threshold: 0.45
+          liveness_threshold: 0.6
+          min_det_score: 0.5
+          debounce_minutes: 2
+        offline: {db_path: /tmp/q.sqlite}
+    """,
+    )
+    cfg = load_config(path)
+    assert cfg.track_iou_threshold == 0.3
+    assert cfg.track_max_misses == 15
+    assert cfg.reverify_seconds == 30.0
+
+
+def test_tracking_section_parsed(tmp_path):
+    path = _write(
+        tmp_path,
+        """
+        frappe: {url: u, site: s, api_key: k, api_secret: sec}
+        edge: {id: e, camera_source: 0, sync_interval: 300}
+        matching:
+          threshold: 0.45
+          liveness_threshold: 0.6
+          min_det_score: 0.5
+          debounce_minutes: 2
+        tracking:
+          iou_threshold: 0.5
+          max_misses: 30
+          reverify_seconds: 60
+        offline: {db_path: /tmp/q.sqlite}
+    """,
+    )
+    cfg = load_config(path)
+    assert cfg.track_iou_threshold == 0.5
+    assert cfg.track_max_misses == 30
+    assert cfg.reverify_seconds == 60
+
+
+def test_single_camera_has_no_cameras_list(tmp_path):
+    path = _write(
+        tmp_path,
+        """
+        frappe: {url: u, site: s, api_key: k, api_secret: sec}
+        edge: {id: edge-001, camera_source: 0, sync_interval: 300}
+        matching:
+          threshold: 0.45
+          liveness_threshold: 0.6
+          min_det_score: 0.5
+          debounce_minutes: 2
+        offline: {db_path: /tmp/q.sqlite}
+    """,
+    )
+    cfg = load_config(path)
+    assert cfg.cameras is None
+    assert cfg.edge_id == "edge-001"
+    assert cfg.camera_source == 0
+    assert cfg.sighting_interval_seconds == 60.0
+
+
+def test_multi_camera_list_parsed(tmp_path):
+    path = _write(
+        tmp_path,
+        """
+        frappe: {url: u, site: s, api_key: k, api_secret: sec}
+        edge:
+          sync_interval: 300
+          sighting_interval_seconds: 30
+          cameras:
+            - {id: edge-001, source: "rtsp://a/1"}
+            - {id: edge-002, source: "rtsp://b/2"}
+        matching:
+          threshold: 0.45
+          liveness_threshold: 0.6
+          min_det_score: 0.5
+          debounce_minutes: 2
+        offline: {db_path: /tmp/q.sqlite}
+    """,
+    )
+    cfg = load_config(path)
+    assert cfg.cameras == (("edge-001", "rtsp://a/1"), ("edge-002", "rtsp://b/2"))
+    # id / camera_source fall back to the first camera when omitted
+    assert cfg.edge_id == "edge-001"
+    assert cfg.camera_source == "rtsp://a/1"
+    assert cfg.sighting_interval_seconds == 30

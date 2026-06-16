@@ -26,13 +26,19 @@ HR uploads an employee photo in Frappe. The face is embedded as a 512-dimensiona
                     └────────────────────────┘
 ```
 
+Operators drive the edge from a single-port web console (`edge-console`): a
+Start/Stop button, live annotated feeds from every camera, in-browser config
+editing (hot-reloaded into the running engine), and on-demand emotion/race
+analysis. Recognition events can be tagged with age and gender for free; emotion
+and race are an optional, offline-only add-on.
+
 ## Components
 
 | Package | Role |
 |---------|------|
-| `facecore` | Pure AI engine — SCRFD detection + ArcFace 512-d embedding + MiniFASNet liveness. No I/O, no Frappe, no web. |
+| `facecore` | Pure AI engine — SCRFD detection + ArcFace 512-d embedding + MiniFASNet liveness, plus free age/gender, distance metrics + thresholds, and image loaders / aligned crops. No I/O, no Frappe, no web. Optional `[demography]` extra adds emotion/race. |
 | `embedding_service` | FastAPI microservice wrapping facecore. Called by Frappe at enrollment. Keeps InsightFace out of the bench. |
-| `edge_client` | Edge device app. Camera → liveness gate → NumPy cosine match → debounce → post recognition event. Heartbeat per sync tick. SQLite offline queue. |
+| `edge_client` | Edge device app. Multi-camera capture → IoU tracker → liveness gate → NumPy cosine match → debounce → post recognition event (optionally tagged with age/gender). Heartbeat per sync tick. SQLite offline queue. Ships an operator console (`edge-console`) with Start/Stop, live annotated feeds, config editing, and on-demand emotion/race analysis. |
 | [`tb-face_attendance`](https://github.com/TechbirdIT/tb-face_attendance) | Frappe app (v16, separate repo). Face profiles + approval workflow, edge device registry, recognition event audit trail, sync/event/heartbeat APIs, health jobs, role fixtures, employee self-service portal (`/face`) with webcam register, status, and rate-limited self-test. |
 
 ## Stack

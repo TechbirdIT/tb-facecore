@@ -16,6 +16,35 @@ edge:
   # Use the camera's SUB-stream (lower resolution) — detection doesn't need 4MP.
   camera_source: 0
   sync_interval: 300  # seconds; how often to pull embeddings from Frappe
+  sighting_interval_seconds: 60  # how often a present employee is recorded (presence
+                                 # sampling). Server gates duplicate check-ins separately.
+
+  # --- Multiple cameras on ONE machine (optional) ---
+  # Run several cameras in this one process, sharing the loaded face models (saves
+  # memory vs one process per camera). Each needs its own id (= a Face Edge Device)
+  # and source. When `cameras` is set, the single `id`/`camera_source` above are
+  # only used as fallbacks. Each camera still tracks faces independently.
+  # cameras:
+  #   - id: "edge-001"
+  #     source: "rtsp://user:pass@192.168.1.68:554/Streaming/Channels/102"
+  #   - id: "edge-002"
+  #     source: "rtsp://user:pass@192.168.1.69:554/Streaming/Channels/102"
+
+  # --- RTSP options (ignored when camera_source is a webcam index) ---
+  rtsp_transport: "tcp"        # tcp (default, reliable) | udp (LOWER LATENCY on a
+                               # clean LAN, but no retransmit → more artifacts).
+                               # Try udp if the live preview lags.
+  rtsp_timeout_seconds: 10     # socket I/O timeout; an unreachable camera then
+                               # reconnects (with backoff) instead of hanging.
+                               # 0 disables the timeout.
+  # Low-latency capture flags (fflags;nobuffer | reorder_queue_size;0 |
+  # max_delay;0) and a 1-frame OpenCV buffer are applied automatically so the
+  # preview tracks real time. The remaining lag is mostly your camera/app's own
+  # encoder buffering — check its app for a "low latency" / buffer setting.
+  # Escape hatch: set the raw OPENCV_FFMPEG_CAPTURE_OPTIONS string verbatim and
+  # the knobs above are ignored. Use if your FFmpeg build spells the socket
+  # timeout 'timeout' instead of 'stimeout':
+  # ffmpeg_capture_options: "rtsp_transport;tcp|fflags;nobuffer|timeout;10000000"
 
 matching:
   threshold: 0.45  # cosine similarity threshold [0.0, 1.0]
@@ -23,7 +52,38 @@ matching:
   min_det_score: 0.5  # detector confidence threshold
   debounce_minutes: 2  # suppress repeat check-ins within N minutes
 
+tracking:
+  # Detection runs every frame; a face is embedded + matched once per track and
+  # re-verified periodically — instead of re-recognizing every frame.
+  iou_threshold: 0.3      # min IoU to associate a detection with an existing track
+  max_misses: 15          # drop a track after this many consecutive unmatched frames
+  reverify_seconds: 30    # re-embed/re-match a tracked face this often (id-swap guard)
+  acquire_fast_seconds: 2     # retry every frame this long so a real face locks on fast
+  acquire_backoff_seconds: 1  # after that, an unidentified (unknown) face retries only
+                              # this often — bounds wasted embedding on passers-by
+
 offline:
   db_path: "/var/lib/edge_client/queue.sqlite"  # offline queue storage
+
+# --- Annotated MJPEG preview for the operator console (optional) ---
+# When enabled, the recognition loop draws real boxes + identities (e.g.
+# HR-EMP-00001) on the live frames and serves them at
+# http://<host>:<port>/<camera_id>.mjpg — a sub-second, browser-displayable feed
+# the console can show in an <img>. Off by default (zero overhead).
+# preview:
+#   enabled: true
+#   host: "127.0.0.1"
+#   port: 9101
+#   fps: 12          # cap preview publish rate (recognition runs full speed)
+#   scale: 0.75      # downscale frames for the preview to save bandwidth
+#   jpeg_quality: 70
+
+# --- Demographics (optional) ---
+# Estimate age + gender per track (buffalo_l genderage; a few ms, no extra deps)
+# and show them on the live preview boxes. Emotion/race are NOT computed here —
+# they're heavy (TensorFlow) and run offline via the console's "Analyze" button
+# / GET /api/demography, which needs:  pip install "facecore[demography]".
+# demographics:
+#   enabled: true
 
 # Logging is stderr-only: INFO by default, DEBUG with --debug.

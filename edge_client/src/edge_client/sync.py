@@ -34,7 +34,8 @@ def flush_queue(client, store, edge_id: str) -> None:
     for item in store.pending_events():
         try:
             client.post_event(
-                edge_id, item["device_id"], item["timestamp"],
+                item.get("edge_id") or edge_id,  # the camera that saw them
+                item["device_id"], item["timestamp"],
                 item["similarity"], item["liveness"],
             )
         except CheckinRejectedError:

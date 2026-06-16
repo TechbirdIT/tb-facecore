@@ -36,6 +36,7 @@ dev = [
 
 [project.scripts]
 edge-client = "edge_client.main:main"
+edge-console = "edge_client.server:main"
 
 [project.urls]
 Repository = "https://github.com/saurabh/facerecog"

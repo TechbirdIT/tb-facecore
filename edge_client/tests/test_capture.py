@@ -1,16 +1,17 @@
 # edge_client/tests/test_capture.py
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 from unittest.mock import MagicMock
 
 import numpy as np
-from facecore.models import DetectedFace
+from facecore.models import FaceBox
 
-from edge_client.capture import process_frame
+from edge_client.capture import process_frame, resolve_cameras
 from edge_client.config import EdgeConfig
 from edge_client.debounce import Debouncer
 from edge_client.matcher import Matcher
 from edge_client.store import Store
+from edge_client.tracker import Tracker
 
 
 def _cfg():
@@ -28,22 +29,57 @@ def _matcher():
                    model_version="buffalo_l")
 
 
-def _analyzer_with(face):
+def _box(bbox=(0, 0, 10, 10)):
+    return FaceBox(bbox=list(bbox), det_score=0.9, kps=[[0, 0]] * 5)
+
+
+def _analyzer(box=True, liveness=0.9, embedding=(1.0, 0.0, 0.0)):
+    """Mock FaceAnalyzer exposing detect()/liveness()/embed()."""
     a = MagicMock()
-    a.analyze.return_value = [face] if face else []
+    a.detect.return_value = [_box()] if box else []
+    a.liveness.return_value = liveness
+    a.embed.return_value = list(embedding)
     return a
 
 
-def _live_face():
-    return DetectedFace(bbox=[0, 0, 1, 1], embedding=[1.0, 0.0, 0.0],
-                        det_score=0.9, liveness_score=0.9)
+def test_demographics_off_skips_gender_age(tmp_path):
+    """Default config must NOT run the genderage pass (kept off the hot path)."""
+    client = MagicMock()
+    store = Store(str(tmp_path / "q.sqlite"))
+    a = _analyzer()
+    process_frame(np.zeros((4, 4, 3), np.uint8), a, _matcher(), Tracker(),
+                  Debouncer(2), client, store, _cfg(), now=datetime(2026, 1, 1, 9, 0))
+    a.gender_age.assert_not_called()
+
+
+def test_demographics_computed_cached_and_emitted(tmp_path):
+    """With the flag on: gender_age runs once, caches on the track, and the
+    age/gender reach the event sink."""
+    from dataclasses import replace
+
+    client = MagicMock()
+    store = Store(str(tmp_path / "q.sqlite"))
+    a = _analyzer()
+    a.gender_age.return_value = (30, "male")
+    cfg = replace(_cfg(), analyze_demographics=True)
+    seen = []
+
+    def on_event(edge_id, device_id, ts, score, live, age=None, gender=None):
+        seen.append((device_id, age, gender))
+
+    tracks = process_frame(np.zeros((4, 4, 3), np.uint8), a, _matcher(), Tracker(),
+                           Debouncer(2), client, store, cfg,
+                           now=datetime(2026, 1, 1, 9, 0, 0), on_event=on_event)
+    a.gender_age.assert_called_once()
+    assert tracks[0].est_age == 30 and tracks[0].est_gender == "male"
+    assert seen == [("D1", 30, "male")]
 
 
 def test_match_posts_event(tmp_path):
     client = MagicMock()
     store = Store(str(tmp_path / "q.sqlite"))
-    process_frame(np.zeros((4, 4, 3), np.uint8), _analyzer_with(_live_face()),
-                  _matcher(), Debouncer(2), client, store, _cfg(),
+    process_frame(np.zeros((4, 4, 3), np.uint8), _analyzer(),
+                  _matcher(), Tracker(), Debouncer(2), client, store, _cfg(),
                   now=datetime(2026, 1, 1, 9, 0, 0))
     client.post_event.assert_called_once()
     args = client.post_event.call_args[0]
@@ -53,13 +89,22 @@ def test_match_posts_event(tmp_path):
 
 
 def test_spoof_below_liveness_no_event(tmp_path):
-    spoof = DetectedFace(bbox=[0, 0, 1, 1], embedding=[1.0, 0.0, 0.0],
-                         det_score=0.9, liveness_score=0.1)
     client = MagicMock()
     store = Store(str(tmp_path / "q.sqlite"))
-    process_frame(np.zeros((4, 4, 3), np.uint8), _analyzer_with(spoof),
-                  _matcher(), Debouncer(2), client, store, _cfg(),
+    process_frame(np.zeros((4, 4, 3), np.uint8), _analyzer(liveness=0.1),
+                  _matcher(), Tracker(), Debouncer(2), client, store, _cfg(),
                   now=datetime(2026, 1, 1, 9, 0, 0))
+    client.post_event.assert_not_called()
+
+
+def test_no_face_no_embed(tmp_path):
+    """No detections → no embedding work, no event."""
+    client = MagicMock()
+    store = Store(str(tmp_path / "q.sqlite"))
+    a = _analyzer(box=False)
+    process_frame(np.zeros((4, 4, 3), np.uint8), a, _matcher(), Tracker(),
+                  Debouncer(2), client, store, _cfg(), now=datetime(2026, 1, 1, 9, 0))
+    a.embed.assert_not_called()
     client.post_event.assert_not_called()
 
 
@@ -67,18 +112,110 @@ def test_post_failure_enqueues(tmp_path):
     client = MagicMock()
     client.post_event.side_effect = RuntimeError("frappe down")
     store = Store(str(tmp_path / "q.sqlite"))
-    process_frame(np.zeros((4, 4, 3), np.uint8), _analyzer_with(_live_face()),
-                  _matcher(), Debouncer(2), client, store, _cfg(),
+    process_frame(np.zeros((4, 4, 3), np.uint8), _analyzer(),
+                  _matcher(), Tracker(), Debouncer(2), client, store, _cfg(),
                   now=datetime(2026, 1, 1, 9, 0, 0))
     assert len(store.pending_events()) == 1
 
 
-def test_debounced_second_punch_skipped(tmp_path):
+def test_embed_once_per_track_within_reverify_window(tmp_path):
+    """Same face across frames is embedded once until the re-verify window."""
     client = MagicMock()
     store = Store(str(tmp_path / "q.sqlite"))
-    deb = Debouncer(2)
-    args = (_analyzer_with(_live_face()), _matcher(), deb, client, store, _cfg())
+    a = _analyzer()
+    tracker, deb, cfg = Tracker(), Debouncer(2), _cfg()
     frame = np.zeros((4, 4, 3), np.uint8)
-    process_frame(frame, *args, now=datetime(2026, 1, 1, 9, 0, 0))
-    process_frame(frame, *args, now=datetime(2026, 1, 1, 9, 0, 30))
+    # 3 frames seconds apart, well under reverify_seconds (30)
+    process_frame(frame, a, _matcher(), tracker, deb, client, store, cfg,
+                  now=datetime(2026, 1, 1, 9, 0, 0))
+    process_frame(frame, a, _matcher(), tracker, deb, client, store, cfg,
+                  now=datetime(2026, 1, 1, 9, 0, 5))
+    process_frame(frame, a, _matcher(), tracker, deb, client, store, cfg,
+                  now=datetime(2026, 1, 1, 9, 0, 10))
+    # embedded once (track recognized once); debounce keeps it to one event
+    assert a.embed.call_count == 1
     assert client.post_event.call_count == 1
+
+
+def test_reverify_after_window_reembeds(tmp_path):
+    client = MagicMock()
+    store = Store(str(tmp_path / "q.sqlite"))
+    a = _analyzer()
+    tracker, cfg = Tracker(), _cfg()
+    frame = np.zeros((4, 4, 3), np.uint8)
+    process_frame(frame, a, _matcher(), tracker, Debouncer(0), client, store, cfg,
+                  now=datetime(2026, 1, 1, 9, 0, 0))
+    # > reverify_seconds (30) later → re-embed
+    process_frame(frame, a, _matcher(), tracker, Debouncer(0), client, store, cfg,
+                  now=datetime(2026, 1, 1, 9, 1, 0))
+    assert a.embed.call_count == 2
+
+
+def test_distinct_faces_get_distinct_tracks(tmp_path):
+    """Two far-apart boxes → two tracks → two embeds in one frame."""
+    client = MagicMock()
+    store = Store(str(tmp_path / "q.sqlite"))
+    a = MagicMock()
+    a.detect.return_value = [_box((0, 0, 10, 10)), _box((100, 100, 120, 120))]
+    a.liveness.return_value = 0.9
+    a.embed.return_value = [1.0, 0.0, 0.0]
+    process_frame(np.zeros((4, 4, 3), np.uint8), a, _matcher(), Tracker(),
+                  Debouncer(2), client, store, _cfg(), now=datetime(2026, 1, 1, 9, 0))
+    assert a.embed.call_count == 2
+
+
+def test_failed_attempt_retries_next_frame_not_after_reverify(tmp_path):
+    """A bad first glimpse (low liveness) must retry immediately, not freeze the
+    unidentified track for reverify_seconds."""
+    client = MagicMock()
+    store = Store(str(tmp_path / "q.sqlite"))
+    a = MagicMock()
+    a.detect.return_value = [_box()]
+    a.embed.return_value = [1.0, 0.0, 0.0]
+    a.liveness.side_effect = [0.1, 0.9]  # frame 1 fails liveness, frame 2 passes
+    tracker, cfg = Tracker(), _cfg()
+    frame = np.zeros((4, 4, 3), np.uint8)
+
+    process_frame(frame, a, _matcher(), tracker, Debouncer(2), client, store, cfg,
+                  now=datetime(2026, 1, 1, 9, 0, 0))
+    assert client.post_event.call_count == 0  # rejected on frame 1
+    # only 1s later — far inside reverify_seconds(30); old logic would freeze it
+    process_frame(frame, a, _matcher(), tracker, Debouncer(2), client, store, cfg,
+                  now=datetime(2026, 1, 1, 9, 0, 1))
+    assert a.liveness.call_count == 2         # retried, not frozen
+    assert client.post_event.call_count == 1  # acquired + posted
+
+
+def test_unknown_face_backs_off_after_fast_window(tmp_path):
+    """An unknown (never-matching) face embeds every frame only during the fast
+    window, then backs off — instead of an embed every frame forever."""
+    client = MagicMock()
+    store = Store(str(tmp_path / "q.sqlite"))
+    a = MagicMock()
+    a.detect.return_value = [_box()]
+    a.liveness.return_value = 0.9
+    a.embed.return_value = [0.0, 1.0, 0.0]  # orthogonal to D1 → never matches
+    tracker, cfg = Tracker(), _cfg()          # acquire_fast=2s, backoff=1s
+    frame = np.zeros((4, 4, 3), np.uint8)
+    base = datetime(2026, 1, 1, 9, 0, 0)
+    # 11 frames at 0.4s spacing across 0.0–4.0s
+    for t in [0.0, 0.4, 0.8, 1.2, 1.6, 2.0, 2.4, 2.8, 3.2, 3.6, 4.0]:
+        process_frame(frame, a, _matcher(), tracker, Debouncer(2), client, store,
+                      cfg, now=base + timedelta(seconds=t))
+    # fast window (<2.0s): 5 frames all embed; backoff (>=2.0s): ~1/sec, not every frame
+    assert a.embed.call_count == 7      # 5 fast + 2 backoff (at ~2.8s and ~4.0s)
+    assert a.embed.call_count < 11      # strictly fewer than one-per-frame
+    assert client.post_event.call_count == 0  # never matched → never posted
+
+
+def test_resolve_cameras_single():
+    from dataclasses import replace
+    cfg = replace(_cfg(), edge_id="edge-001", camera_source=0, cameras=None)
+    assert resolve_cameras(cfg) == [("edge-001", 0)]
+
+
+def test_resolve_cameras_multi():
+    from dataclasses import replace
+    cams = (("edge-001", "rtsp://a/1"), ("edge-002", "rtsp://b/2"))
+    cfg = replace(_cfg(), cameras=cams)
+    assert resolve_cameras(cfg) == [("edge-001", "rtsp://a/1"), ("edge-002", "rtsp://b/2")]

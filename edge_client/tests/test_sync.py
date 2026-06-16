@@ -82,3 +82,15 @@ def test_flush_drains_legacy_checkin_queue(tmp_path):
         "edge-001", "D1", "2026-01-01 09:00:00", 0.0, 0.0
     )
     assert store.pending_checkins() == []
+
+
+def test_flush_uses_per_item_edge_id(tmp_path):
+    """A queued event posts under the camera that produced it, not the caller's
+    default — so multi-camera offline events are attributed correctly."""
+    store = Store(str(tmp_path / "q.sqlite"))
+    store.enqueue_event("D1", "2026-01-01 09:00:00", 0.8, 0.9, "edge-002")
+    client = MagicMock()
+    flush_queue(client, store, "edge-001")  # caller default differs from the item
+    client.post_event.assert_called_once_with(
+        "edge-002", "D1", "2026-01-01 09:00:00", 0.8, 0.9
+    )

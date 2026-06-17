@@ -54,7 +54,7 @@ central Frappe server **without a later refactor**.
                     │  • sync API  • settings  │  │
                     └─────────────────────────┘  ▼
                           ▲  ▲              ┌──────────────────────┐
-        checkin REST API  │  │ pull         │ embedding_service     │
+        checkin REST API  │  │ pull         │ ai_service            │
    (add_log_based_on_...) │  │ embeddings   │ FastAPI + facecore     │
                           │  │              └──────────────────────┘
                     ┌─────┴──┴───────────────┐
@@ -70,11 +70,11 @@ central Frappe server **without a later refactor**.
 | Unit | Location | Imports InsightFace | Responsibility |
 |------|----------|:--:|----------------|
 | `facecore` | `facerecog/facecore/` | yes | Pure AI engine. `analyze(image) -> list[DetectedFace]`. No I/O. |
-| `embedding_service` | `facerecog/embedding_service/` | via facecore | `POST /embed`: image → embedding + scores. Decoupling boundary. |
+| `ai_service` | `facerecog/ai_service/` | via facecore | `POST /embed`: image → embedding. `POST /verify-id`, `POST /analyze`: stubs for ID verification and analytics. Decoupling boundary. |
 | `face_attendance` | `frappe-bench/apps/face_attendance/` | **no** | Frappe app: enrollment DocTypes, sync API, settings. HTTP-calls the service. |
 | `edge_client` | `facerecog/edge_client/` | via facecore | Camera → liveness → embed → match → debounce → post check-in. Offline-resilient. |
 
-`facecore` is the single shared dependency of `embedding_service` and `edge_client`.
+`facecore` is the single shared dependency of `ai_service` and `edge_client`.
 
 ---
 
@@ -87,7 +87,7 @@ central Frappe server **without a later refactor**.
 - **Runtime:** ONNX Runtime. `CPUExecutionProvider` on the Mac;
   `CUDAExecutionProvider` on prod Linux edges (selected via config).
 - **Python split:**
-  - AI stack (`facecore`, `embedding_service`, `edge_client`): **Python 3.11** venv
+  - AI stack (`facecore`, `ai_service`, `edge_client`): **Python 3.11** venv
     (insightface + onnxruntime have reliable 3.11 wheels; 3.14 does not).
   - `face_attendance`: runs in the bench's Python 3.14 — no AI deps, only `requests`.
 
@@ -151,7 +151,7 @@ Dependency direction: frappe → erpnext → hrms → face_attendance (no cycles
   population + `frappe.throw`). Guard with `self.has_value_changed("enrollment_image")` so
   it only re-embeds when the image actually changes.
 - If a new `enrollment_image` is attached, read the file bytes and `POST` them to
-  `embedding_service /embed`. Validate the response: exactly one face and
+  `ai_service /embed`. Validate the response: exactly one face and
   `det_score >= min_det_score`. **Liveness is NOT gated at enrollment** — an uploaded
   enrollment photo is inherently a 2D image and a passive anti-spoof model would reject
   every one. Liveness is enforced only on the live edge path (§6). The service may still
@@ -209,7 +209,7 @@ whose `model_version` ≠ the current service version). No automatic re-embeddin
 ## 7. Data flows
 
 **Enrollment:** HR opens Employee Face Profile → links employee → uploads photo → save →
-controller POSTs image bytes to `embedding_service` → validate → store 512-d vector + scores.
+controller POSTs image bytes to `ai_service` → validate → store 512-d vector + scores.
 
 **Sync:** edge GETs `get_face_data(since)` → rebuilds local matrix.
 
@@ -237,7 +237,7 @@ POST check-in → Frappe **Employee Checkin** created → hourly `process_auto_a
   via `frappe.db.get_values()`, which bypasses permission checks. Least privilege holds.
 - The `get_face_data` sync method enforces its own role gate (§5).
 - Run `bench --site <site> migrate` after any `hooks.py`/fixture/DocType change.
-- **embedding_service:** shared-secret header; bound to localhost (v1) / private network (prod);
+- **ai_service:** shared-secret header; bound to localhost (v1) / private network (prod);
   HTTPS in prod.
 - **Biometric data:** store only **derived embeddings** (not reversible to a face image).
   Enrollment-photo retention optional/deletable. Consent + retention policy is an
@@ -249,7 +249,7 @@ POST check-in → Frappe **Employee Checkin** created → hourly `process_auto_a
 
 | Condition | Behavior |
 |-----------|----------|
-| Embedding service down at enrollment | save fails loud; no profile stored |
+| AI service down at enrollment | save fails loud; no profile stored |
 | No face / multiple faces / low det score | reject enrollment with message |
 | Edge camera open fails | log + retry-open with backoff |
 | Match below threshold | ignore (no punch) |
@@ -263,8 +263,8 @@ POST check-in → Frappe **Employee Checkin** created → hourly `process_auto_a
 
 - **facecore:** same-person pair → high cosine; different person → low; printed-photo
   fixture → low liveness. Small committed fixture images.
-- **embedding_service:** FastAPI `TestClient` — single/multi/no-face, auth header.
-- **face_attendance:** `FrappeTestCase` — enrollment controller (embedding service mocked),
+- **ai_service:** FastAPI `TestClient` — single/multi/no-face, auth header.
+- **face_attendance:** `FrappeTestCase` — enrollment controller (AI service mocked),
   blank-`attendance_device_id` rejection, sync output shape + incremental `since` filter,
   and a **permission test asserting the "Face Edge Device" user CAN create an Employee
   Checkin** (proves the DocPerm fixture works) but cannot touch unrelated HR data.
@@ -284,9 +284,9 @@ facerecog/
 ├── facecore/                       # shared AI lib (src layout, pyproject)
 │   ├── pyproject.toml
 │   └── src/facecore/
-├── embedding_service/              # FastAPI app (depends on facecore)
+├── ai_service/                     # FastAPI app (depends on facecore)
 │   ├── pyproject.toml
-│   └── src/embedding_service/
+│   └── src/ai_service/
 ├── edge_client/                    # edge app (depends on facecore)
 │   ├── pyproject.toml
 │   ├── config.example.yaml
@@ -316,7 +316,7 @@ live in this repo. All four are developed together.
 ## 13. Build phases (input to the implementation plan)
 
 1. `facecore` + tests
-2. `embedding_service` + tests
+2. `ai_service` + tests
 3. `face_attendance` Frappe app: `required_apps`, DocTypes (+ autoname), enrollment
    controller, sync API, "Face Edge Device" role + Custom DocPerm fixture on Employee
    Checkin (create+read), model-version re-enroll report + tests

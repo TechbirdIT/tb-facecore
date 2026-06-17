@@ -19,7 +19,7 @@ HR uploads an employee photo in Frappe. The face is embedded as a 512-dimensiona
        post_event +       │          │ pull approved
        heartbeat REST     │          │ embeddings
                     ┌─────┴──────────┴───────┐    ┌──────────────────┐
-                    │  edge_client (venv)    │    │ embedding_service │
+                    │  edge_client (venv)    │    │ ai_service        │
                     │  camera → facecore     │    │ FastAPI           │
                     │  → NumPy match         │    │ POST /embed       │
                     │  → debounce → event    │    └──────────────────┘
@@ -37,7 +37,7 @@ and race are an optional, offline-only add-on.
 | Package | Role |
 |---------|------|
 | `facecore` | Pure AI engine — SCRFD detection + ArcFace 512-d embedding + MiniFASNet liveness, plus free age/gender, distance metrics + thresholds, and image loaders / aligned crops. No I/O, no Frappe, no web. Optional `[demography]` extra adds emotion/race. |
-| `embedding_service` | FastAPI microservice wrapping facecore. Called by Frappe at enrollment. Keeps InsightFace out of the bench. |
+| `ai_service` | FastAPI microservice wrapping facecore. Called by Frappe at enrollment and for AI inference (ID verification, analytics). Keeps InsightFace/DeepFace out of the bench. |
 | `edge_client` | Edge device app. Multi-camera capture → IoU tracker → liveness gate → NumPy cosine match → debounce → post recognition event (optionally tagged with age/gender). Heartbeat per sync tick. SQLite offline queue. Ships an operator console (`edge-console`) with Start/Stop, live annotated feeds, config editing, and on-demand emotion/race analysis. |
 | [`tb-face_attendance`](https://github.com/TechbirdIT/tb-face_attendance) | Frappe app (v16, separate repo). Face profiles + approval workflow, edge device registry, recognition event audit trail, sync/event/heartbeat APIs, health jobs, role fixtures, employee self-service portal (`/face`) with webcam register, status, and rate-limited self-test. |
 
@@ -60,8 +60,8 @@ tb-facecore/
 ├── facecore/                   # AI engine (shared lib)
 │   ├── src/facecore/
 │   └── pyproject.toml
-├── embedding_service/          # FastAPI enrollment service
-│   ├── src/embedding_service/
+├── ai_service/                 # FastAPI enrollment service
+│   ├── src/ai_service/
 │   └── pyproject.toml
 ├── edge_client/                # Edge device client
 │   ├── src/edge_client/
@@ -75,7 +75,7 @@ tb-facecore/
 
 ## Setup
 
-Full walkthrough — prerequisites, models, embedding service, Frappe configuration,
+Full walkthrough — prerequisites, models, AI service, Frappe configuration,
 enrollment, edge client (webcam and RTSP/IP cameras), local RTSP test rig,
 troubleshooting, and production deployment — lives in
 **[docs/how-to.md](docs/how-to.md)**.
@@ -90,7 +90,7 @@ python3.11 -m venv venv
 source venv/bin/activate
 
 pip install -e facecore/
-pip install -e embedding_service/
+pip install -e ai_service/
 pip install -e edge_client/
 ```
 
@@ -112,8 +112,8 @@ Then follow [docs/how-to.md](docs/how-to.md) from section 4 (models) onward.
 # facecore
 cd facecore && pytest
 
-# embedding_service
-cd embedding_service && pytest
+# ai_service
+cd ai_service && pytest
 
 # edge_client
 cd edge_client && pytest

@@ -20,7 +20,7 @@ Two repositories, three processes:
 | Piece | What | Where | Port |
 |---|---|---|---|
 | Frappe bench + [`tb-face_attendance`](https://github.com/TechbirdIT/tb-face_attendance) | DocTypes, sync/event/heartbeat APIs, approval workflow, employee portal (`/face`) | `~/frappe-bench`, site e.g. `site1.localhost` | 8000 |
-| `embedding_service` (this repo) | FastAPI wrapper around facecore; called by Frappe at enrollment to turn a photo into a 512-d vector | AI venv | 8080 |
+| `ai_service` (this repo) | FastAPI wrapper around facecore; called by Frappe at enrollment to turn a photo into a 512-d vector | AI venv | 8080 |
 | `edge_client` (this repo) | Runs on the edge device: camera → detect → liveness → match → post recognition event | AI venv, one per device | — |
 
 ```
@@ -34,7 +34,7 @@ Two repositories, three processes:
        post_event +       │          │ pull approved
        heartbeat REST     │          │ embeddings
                     ┌─────┴──────────┴───────┐    ┌──────────────────┐
-                    │  edge_client (venv)    │    │ embedding_service │
+                    │  edge_client (venv)    │    │ ai_service        │
                     │  camera → facecore     │    │ FastAPI           │
                     │  → NumPy match         │    │ POST /embed       │
                     │  → debounce → event    │    └──────────────────┘
@@ -44,7 +44,7 @@ Two repositories, three processes:
 Data flow, end to end:
 
 1. Employee enrolls (photo via HR Desk or the `/face` self-service portal).
-2. Frappe posts the photo to the embedding service; the 512-d ArcFace vector is
+2. Frappe posts the photo to the AI service; the 512-d ArcFace vector is
    stored on the **Employee Face Profile**.
 3. An HR Manager approves the profile (**Face Profile Approval** workflow).
    Only **Approved** profiles sync to devices.
@@ -57,8 +57,8 @@ Data flow, end to end:
 
 Two distinct secrets — don't mix them up:
 
-- **Embedding service secret** (`EMBEDDING_SERVICE_SECRET` env var) — shared
-  between Frappe and the embedding service. Set in **Face Recognition Settings**.
+- **AI service secret** (`EMBEDDING_SERVICE_SECRET` env var) — shared
+  between Frappe and the AI service. Set in **Face Recognition Settings**.
 - **Edge API key + secret** — Frappe API credentials for the edge client's user
   (role **Face Edge Device**). Go in the edge `config.yaml`.
 
@@ -89,14 +89,14 @@ python3.11 -m venv venv
 source venv/bin/activate
 
 pip install -e facecore/
-pip install -e embedding_service/
+pip install -e ai_service/
 pip install -e edge_client/
 ```
 
 Verify:
 
 ```bash
-python -c "import facecore, embedding_service, edge_client; print('ok')"
+python -c "import facecore, ai_service, edge_client; print('ok')"
 ```
 
 ## 4. Download models (once, ~310 MB)
@@ -124,12 +124,12 @@ a custom liveness model instead, drop your own `minifasnet.onnx` at that path
 (a pre-existing file is never overwritten); it must take a raw 0-255 BGR `1x3x80x80`
 NCHW input and output 3 classes with index 1 = live.
 
-## 5. Start the embedding service
+## 5. Start the AI service
 
 ```bash
 cd tb-facecore && source venv/bin/activate
 export EMBEDDING_SERVICE_SECRET=<choose-a-secret>   # must match Face Recognition Settings (step 6)
-uvicorn embedding_service.app:app --host 127.0.0.1 --port 8080
+uvicorn ai_service.app:app --host 127.0.0.1 --port 8080
 ```
 
 Smoke-test:
@@ -185,7 +185,7 @@ Approved (rate-limited 5/min).
 
 **HR-managed** — HR → **Employee Face Profile** → New → link employee → upload a
 clear front-facing photo → Save. On save, Frappe posts the image to the
-embedding service and stores the vector. Failures (service down, no/multiple
+AI service and stores the vector. Failures (service down, no/multiple
 faces, low quality, blank Attendance Device ID) block the save with a message.
 
 Either way, an HR Manager then approves via the **Face Profile Approval**
@@ -404,7 +404,7 @@ With everything running, stand in front of the camera:
 | Face visible but never matches | Profile not Approved; embeddings not synced yet; enrollment photo from a different device | Approve the profile; wait one `sync_interval` or restart the client; re-enroll from the recognizing camera |
 | Similarity hovers just under `threshold` (e.g. 0.38–0.44 vs 0.45) | Cross-device enrollment (~0.1 penalty), poor lighting, oblique angle | Re-enroll from the same camera; improve lighting; as a last resort lower `threshold` slightly — never below ~0.35 |
 | Match found but event not posted, log shows liveness skip | `liveness_score` under `liveness_threshold` — glare, backlight, low light, or an actual spoof | Fix lighting first; only then consider lowering `liveness_threshold` |
-| Enrollment save fails in Frappe | Embedding service down/unreachable, secret mismatch, or photo rejected (no/multiple faces, low quality) | `curl :8080/health`; compare `EMBEDDING_SERVICE_SECRET` with Face Recognition Settings; use a clear single-face photo |
+| Enrollment save fails in Frappe | AI service down/unreachable, secret mismatch, or photo rejected (no/multiple faces, low quality) | `curl :8080/health`; compare `EMBEDDING_SERVICE_SECRET` with Face Recognition Settings; use a clear single-face photo |
 | Edge gets `401` from Frappe | Wrong API key/secret, or user lacks the Face Edge Device role | Regenerate API credentials; check role assignment |
 | Edge events/heartbeats rejected (`403`/validation) | No **Face Edge Device** record with Device ID = `edge.id` | Create/fix the device record (step 6.5) |
 | Device shows **Unreachable** in Frappe | Edge process down, or network partition longer than the stale threshold | Check the edge process/logs; any successful heartbeat revives the device |
@@ -422,19 +422,19 @@ it never affects matching.
 
 ### Process supervision (systemd)
 
-Embedding service (on the bench host):
+AI service (on the bench host):
 
 ```ini
-# /etc/systemd/system/embedding-service.service
+# /etc/systemd/system/ai-service.service
 [Unit]
-Description=Face embedding service
+Description=Face AI service
 After=network.target
 
 [Service]
 User=frappe
 WorkingDirectory=/opt/tb-facecore
 Environment=EMBEDDING_SERVICE_SECRET=<secret>
-ExecStart=/opt/tb-facecore/venv/bin/uvicorn embedding_service.app:app --host 127.0.0.1 --port 8080
+ExecStart=/opt/tb-facecore/venv/bin/uvicorn ai_service.app:app --host 127.0.0.1 --port 8080
 Restart=always
 RestartSec=5
 
@@ -462,7 +462,7 @@ WantedBy=multi-user.target
 ```
 
 ```bash
-sudo systemctl enable --now embedding-service edge-client
+sudo systemctl enable --now ai-service edge-client
 journalctl -u edge-client -f      # logs are stderr → journal
 ```
 
@@ -471,7 +471,7 @@ user (`/var/lib/edge_client/`).
 
 ### Hardening checklist
 
-- Embedding service: bind to `127.0.0.1` or a private interface; it needs to be
+- AI service: bind to `127.0.0.1` or a private interface; it needs to be
   reachable by Frappe only. Put nginx + TLS in front if it must cross hosts.
 - One **Face Edge Device** record and one unique `edge.id` per physical device.
 - Keep `config.yaml` permissions tight (`chmod 600`) — it holds API credentials.
@@ -483,7 +483,7 @@ user (`/var/lib/edge_client/`).
   job (section 11.4). Alert on devices flipping to Unreachable.
 - **Offline queue depth**: check the SQLite queue file on each edge; alert if
   it exceeds ~10k pending events (means Frappe has been unreachable for a while).
-- **Embedding service**: the 10-minute Frappe health job logs when `/health`
+- **AI service**: the 10-minute Frappe health job logs when `/health`
   is unreachable.
 
 ### Model upgrades
@@ -509,6 +509,6 @@ known-length event burst).
 
 - Architecture & design decisions: [`docs/design/architecture.md`](design/architecture.md)
 - Package internals: [`facecore/README.md`](../facecore/README.md),
-  [`embedding_service/README.md`](../embedding_service/README.md),
+  [`ai_service/README.md`](../ai_service/README.md),
   [`edge_client/README.md`](../edge_client/README.md)
 - Frappe app: [TechbirdIT/tb-face_attendance](https://github.com/TechbirdIT/tb-face_attendance)

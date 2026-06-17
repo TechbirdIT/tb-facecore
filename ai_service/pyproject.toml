@@ -19,21 +19,23 @@ dependencies = [
     "pydantic>=2.0.0",
     "python-multipart>=0.0.6",
     "pillow>=10.0.0",
+    "httpx>=0.27",
 ]
 
 [project.optional-dependencies]
 dev = [
     "pytest>=7.4.0",
     "pytest-cov>=4.1.0",
-    "pytest-asyncio>=0.21.0",
+    "pytest-asyncio>=0.23",
     "httpx>=0.25.0",
+    "respx>=0.21",
     "black>=23.0.0",
     "ruff>=0.1.0",
     "mypy>=1.5.0",
 ]
 
 [tool.setuptools]
-packages = ["ai_service", "ai_service.routes"]
+packages = ["ai_service", "ai_service.routes", "ai_service.clients"]
 
 [tool.setuptools.package-dir]
 "" = "src"
@@ -57,3 +59,4 @@ warn_unused_configs = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 addopts = "--cov=ai_service --cov-report=term-missing"
+asyncio_mode = "auto"

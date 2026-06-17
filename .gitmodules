@@ -1,0 +1,4 @@
+[submodule "vendor/deepface"]
+	path = vendor/deepface
+	url = https://github.com/ekansh-tb/deepface.git
+	branch = Develop

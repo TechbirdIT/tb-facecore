@@ -5,7 +5,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from ai_service.config import Settings
-from ai_service.routes import embed, health
+from ai_service.routes import analyze, embed, health, verify_id
 
 app = FastAPI(
     title="AI Service",
@@ -22,3 +22,5 @@ def get_settings() -> Settings:
 
 app.include_router(health.router)
 app.include_router(embed.router)
+app.include_router(verify_id.router)
+app.include_router(analyze.router)

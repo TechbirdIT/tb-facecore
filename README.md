@@ -4,7 +4,7 @@ Facial recognition biometric attendance for Frappe HRMS v16. Employees check in 
 
 This repository contains the AI/edge stack. The companion Frappe app lives at [TechbirdIT/tb-face_attendance](https://github.com/TechbirdIT/tb-face_attendance).
 
-> **On the `saurabh-test-dev` branch:** this is an experimental staging branch introducing a dual-engine architecture (InsightFace for real-time recognition + a DeepFace analytics sidecar). See [docs/dual-engine-architecture.md](docs/dual-engine-architecture.md).
+The system runs a **dual-engine architecture**: InsightFace for fast real-time recognition on the edge, and a DeepFace analytics sidecar (Docker) for server-side analysis (`/analyze` demographics). The two engines are deliberately separate — see [docs/dual-engine-architecture.md](docs/dual-engine-architecture.md).
 
 ## How it works
 
@@ -13,19 +13,25 @@ HR uploads an employee photo in Frappe. The face is embedded as a 512-dimensiona
 ```
                     ┌──────────────────────────┐
    HR uploads photo │  FRAPPE + face_attendance│
-        ──────────► │  Face Profile + workflow │──► POST /embed
+        ──────────► │  Face Profile + workflow │──► POST /embed, /analyze
                     │  Device registry, events │
                     │  Sync API + Settings     │
                     └──────────────────────────┘
                           ▲          ▲
        post_event +       │          │ pull approved
        heartbeat REST     │          │ embeddings
-                    ┌─────┴──────────┴───────┐    ┌──────────────────┐
-                    │  edge_client (venv)    │    │ ai_service        │
-                    │  camera → facecore     │    │ FastAPI           │
-                    │  → NumPy match         │    │ POST /embed       │
-                    │  → debounce → event    │    └──────────────────┘
-                    └────────────────────────┘
+                    ┌─────┴──────────┴───────┐    ┌────────────────────────┐
+                    │  edge_client (venv)    │    │ ai_service (FastAPI)    │
+                    │  camera → facecore     │    │ /health /embed         │
+                    │  → NumPy match         │    │ /analyze /verify-id    │
+                    │  → debounce → event    │    └───────────┬────────────┘
+                    └────────────────────────┘                │ proxy /analyze
+                                                               ▼
+                                                  ┌──────────────────────────┐
+                                                  │ DeepFace sidecar (Docker) │
+                                                  │ API + Weaviate + Postgres │
+                                                  │ + MinIO  (analytics)      │
+                                                  └──────────────────────────┘
 ```
 
 Operators drive the edge from a single-port web console (`edge-console`): a
@@ -51,6 +57,8 @@ and race are an optional, offline-only add-on.
 | Liveness | Silent-Face MiniFASNet (passive, no user interaction) |
 | Matching | NumPy cosine similarity (sub-ms, no vector DB needed) |
 | Runtime | ONNX Runtime — CPU on dev, CUDA-switchable on prod |
+| Analytics | DeepFace fork as a Docker sidecar (Flask API + Weaviate + Postgres + MinIO) — emotion/age/gender/race, server-side |
+| Ports | Frappe 8000 · ai_service 8080 · deepface API 5005 · Weaviate 8081 · MinIO 9000/9001 · Postgres 5432 |
 | Python | 3.11 for AI stack |
 | Camera | OpenCV — webcam and RTSP/IP cameras (Hikvision, Dahua/CP Plus, S.vision, any ONVIF; see `edge_client/README.md`) |
 | Offline queue | SQLite — durable across edge restarts |
@@ -59,23 +67,29 @@ and race are an optional, offline-only add-on.
 
 ```
 tb-facecore/
-├── facecore/                   # AI engine (shared lib)
+├── facecore/                       # AI engine (shared lib): SCRFD + ArcFace + liveness
 │   ├── src/facecore/
-│   └── pyproject.toml
-├── ai_service/                 # FastAPI enrollment service
+│   └── pyproject.toml              # optional [demography] extra (DeepFace/TF)
+├── ai_service/                     # FastAPI gateway: /health /embed /analyze /verify-id
 │   ├── src/ai_service/
-│   └── pyproject.toml
-├── edge_client/                # Edge device client
+│   ├── tests/
+│   └── pyproject.toml              # [dev] extra: pytest, ruff, mypy
+├── edge_client/                    # Edge client + operator console (edge-console)
 │   ├── src/edge_client/
 │   ├── config.example.yaml
 │   └── pyproject.toml
 ├── docs/
-│   ├── design/architecture.md  # Full architecture & design decisions
-│   ├── how-to.md               # Complete setup & operations guide
-│   └── deepface-sidecar.md     # DeepFace analytics sidecar setup
-├── vendor/deepface/            # DeepFace fork (git submodule, private)
-├── docker-compose.yml          # Includes sidecar compose via Compose v2 include
-└── models/                     # Downloaded AI models (gitignored, ~310MB)
+│   ├── design/architecture.md          # Full architecture & design decisions
+│   ├── how-to.md                       # Complete setup & operations guide
+│   ├── dual-engine-architecture.md     # InsightFace edge + DeepFace sidecar
+│   └── deepface-sidecar.md             # DeepFace analytics sidecar setup
+├── scripts/                        # up.sh / verify.sh / down.sh (one-click bring-up)
+├── vendor/deepface/                # DeepFace fork (git submodule, private)
+├── docker-compose.yml              # Sidecar stack (Compose v2 include + weights volume)
+├── install.sh                      # venv + editable installs + generated .env
+├── Makefile                        # install / up / verify / down / test
+├── .github/workflows/ci.yml        # pytest + ruff + mypy
+└── models/                         # Downloaded AI models (gitignored, ~310MB)
 ```
 
 ## Setup
@@ -85,21 +99,22 @@ enrollment, edge client (webcam and RTSP/IP cameras), local RTSP test rig,
 troubleshooting, and production deployment — lives in
 **[docs/how-to.md](docs/how-to.md)**.
 
-Quickstart (AI stack only):
+Quickstart:
 
 ```bash
-git clone https://github.com/TechbirdIT/tb-facecore
+git clone --recurse-submodules https://github.com/TechbirdIT/tb-facecore
 cd tb-facecore
 
-python3.11 -m venv venv
-source venv/bin/activate
-
-pip install -e facecore/
-pip install -e ai_service/
-pip install -e edge_client/
+./install.sh        # venv + facecore/ai_service/edge_client + generated .env secret
+make up             # start sidecar + ai_service, warm models, verify health (prints ✅/❌)
+make verify         # push a real face through /analyze and confirm demographics
 ```
 
-Then follow [docs/how-to.md](docs/how-to.md) from section 4 (models) onward.
+`make up` prints the generated `AI_SERVICE_SECRET` to paste into Frappe. To run just the
+AI service without the analytics sidecar, use `make run`. Full walkthrough — models, Frappe
+configuration, enrollment, edge client (webcam/RTSP), production — in
+[docs/how-to.md](docs/how-to.md). The DeepFace sidecar requires access to the private
+`ekansh-tb/deepface` submodule; see [docs/deepface-sidecar.md](docs/deepface-sidecar.md).
 
 ## Security
 
@@ -114,15 +129,17 @@ Then follow [docs/how-to.md](docs/how-to.md) from section 4 (models) onward.
 ## Testing
 
 ```bash
-# facecore
+make test                                  # ai_service suite (pytest)
+
+# full ai_service gate, exactly as CI runs it:
+cd ai_service && ruff check . && mypy src && pytest
+
+# other packages
 cd facecore && pytest
-
-# ai_service
-cd ai_service && pytest
-
-# edge_client
 cd edge_client && pytest
 ```
+
+CI (`.github/workflows/ci.yml`) runs ruff, mypy, and pytest on every PR; CodeQL scans via the repository's default setup.
 
 ## Compatibility
 

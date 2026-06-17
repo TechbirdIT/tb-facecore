@@ -30,7 +30,10 @@ def _get_settings() -> Settings:
 def get_client() -> DeepFaceClient:
     global _client
     if _client is None:
-        _client = DeepFaceClient(base_url=_get_settings().deepface_url)
+        settings = _get_settings()
+        _client = DeepFaceClient(
+            base_url=settings.deepface_url, timeout=settings.deepface_timeout
+        )
     return _client
 
 

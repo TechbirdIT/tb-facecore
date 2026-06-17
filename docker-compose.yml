@@ -1,6 +1,18 @@
 # Top-level stack. The deepface sidecar is vendored as a git submodule and
 # its full compose (API + Postgres + Weaviate + MinIO + UI) is included as-is.
 # ai_service is run separately (uvicorn) during development; see docs/how-to.md.
+#
+# We add one thing on top of the included compose without editing the submodule:
+# a named volume for the DeepFace model weights, so they download once and
+# survive `docker compose down` (no repeated ~500 MB re-downloads).
 include:
   - path: vendor/deepface/docker/docker-compose.yml
     env_file: vendor/deepface/docker/.env
+
+volumes:
+  deepface_weights:
+
+services:
+  deepface:
+    volumes:
+      - deepface_weights:/root/.deepface

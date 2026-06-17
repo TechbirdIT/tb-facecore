@@ -12,6 +12,10 @@ class Settings:
     device: str
     min_det_score: float
     deepface_url: str = field(default="http://localhost:5005/api/v1")
+    # Generous: DeepFace lazy-loads TF models on the first /analyze of a fresh
+    # container (cold start can take minutes). `make up` warms them so real
+    # calls are fast; this headroom keeps a cold call from spuriously failing.
+    deepface_timeout: float = field(default=120.0)
 
     @classmethod
     def from_env(cls) -> Settings:
@@ -34,9 +38,13 @@ class Settings:
         deepface_url = (
             os.getenv("AI_SERVICE_DEEPFACE_URL") or "http://localhost:5005/api/v1"
         )
+        deepface_timeout = float(
+            os.getenv("AI_SERVICE_DEEPFACE_TIMEOUT") or "120"
+        )
         return cls(
             secret=secret,
             device=device,
             min_det_score=min_det_score,
             deepface_url=deepface_url,
+            deepface_timeout=deepface_timeout,
         )

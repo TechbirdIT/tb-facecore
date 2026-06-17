@@ -11,12 +11,24 @@ def test_defaults(monkeypatch):
         "EMBEDDING_SERVICE_SECRET",
         "EMBEDDING_SERVICE_DEVICE",
         "EMBEDDING_SERVICE_MIN_DET_SCORE",
+        "AI_SERVICE_DEEPFACE_URL",
+        "AI_SERVICE_DEEPFACE_TIMEOUT",
     ):
         monkeypatch.delenv(key, raising=False)
     s = Settings.from_env()
     assert s.secret is None
     assert s.device == "cpu"
     assert s.min_det_score == 0.5
+    assert s.deepface_url == "http://localhost:5005/api/v1"
+    assert s.deepface_timeout == 120.0
+
+
+def test_reads_deepface_settings(monkeypatch):
+    monkeypatch.setenv("AI_SERVICE_DEEPFACE_URL", "http://sidecar:9000/api/v1")
+    monkeypatch.setenv("AI_SERVICE_DEEPFACE_TIMEOUT", "45")
+    s = Settings.from_env()
+    assert s.deepface_url == "http://sidecar:9000/api/v1"
+    assert s.deepface_timeout == 45.0
 
 
 def test_reads_new_env_vars(monkeypatch):

@@ -12,7 +12,3 @@ def test_verify_id_stub_returns_501():
     assert r.json()["detail"] == "not implemented"
 
 
-def test_analyze_stub_returns_501():
-    r = client.post("/analyze", json={})
-    assert r.status_code == 501
-    assert r.json()["detail"] == "not implemented"

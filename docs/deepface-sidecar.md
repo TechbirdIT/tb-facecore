@@ -30,18 +30,30 @@ cp vendor/deepface/docker/.env.example vendor/deepface/docker/.env
 
 Edit `vendor/deepface/docker/.env` to set credentials, secrets, and any port overrides needed for your environment.
 
-## 3. Bring it up
+## 3. Bring it up (one command)
 
-From the repo root (the top-level `docker-compose.yml` uses Compose v2 `include` to pull in `vendor/deepface/docker/docker-compose.yml`):
+From the repo root:
 
 ```bash
-docker compose up -d
-docker compose ps
+make up        # starts the sidecar + ai_service, warms models, verifies health
+make verify    # pushes a real face through /analyze and confirms demographics
+make down      # stops ai_service + the sidecar (model weights persist)
 ```
 
-Tear down:
+`make up` is the recommended path — it waits until each service actually
+responds (not just "container started"), warms the DeepFace models once (a fresh
+container lazy-loads TF models on the first `/analyze`, which can take a few
+minutes — `make up` pays that cost upfront so real calls are sub-second), and
+prints a clear ✅/❌ with the next action on failure. It also remaps Weaviate's
+host port 8080 → 8081 so it doesn't collide with `ai_service` on 8080, and model
+weights live in the `deepface_weights` volume so they survive `make down`.
+
+Raw Compose still works if you only want the sidecar (the top-level
+`docker-compose.yml` uses Compose v2 `include`):
 
 ```bash
+docker compose up -d        # sidecar only; ai_service started separately
+docker compose ps
 docker compose down
 ```
 

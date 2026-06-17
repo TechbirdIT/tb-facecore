@@ -21,5 +21,9 @@ jobs:
         # ai_service imports facecore (InsightFace engine) at runtime, so both
         # are installed editable. facecore pulls numpy/opencv/onnxruntime.
         run: pip install -e facecore -e "ai_service[dev]"
+      - name: Lint (ruff)
+        run: cd ai_service && ruff check .
+      - name: Type check (mypy)
+        run: cd ai_service && mypy src
       - name: Run tests
         run: cd ai_service && pytest -v

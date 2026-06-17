@@ -1,10 +1,17 @@
 import pytest
+
 from ai_service.config import Settings
 
 
 def test_defaults(monkeypatch):
-    for key in ("AI_SERVICE_SECRET", "AI_SERVICE_DEVICE", "AI_SERVICE_MIN_DET_SCORE",
-                "EMBEDDING_SERVICE_SECRET", "EMBEDDING_SERVICE_DEVICE", "EMBEDDING_SERVICE_MIN_DET_SCORE"):
+    for key in (
+        "AI_SERVICE_SECRET",
+        "AI_SERVICE_DEVICE",
+        "AI_SERVICE_MIN_DET_SCORE",
+        "EMBEDDING_SERVICE_SECRET",
+        "EMBEDDING_SERVICE_DEVICE",
+        "EMBEDDING_SERVICE_MIN_DET_SCORE",
+    ):
         monkeypatch.delenv(key, raising=False)
     s = Settings.from_env()
     assert s.secret is None

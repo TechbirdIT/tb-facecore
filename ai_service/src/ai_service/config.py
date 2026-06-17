@@ -31,5 +31,12 @@ class Settings:
             or os.getenv("EMBEDDING_SERVICE_MIN_DET_SCORE")
             or "0.5"
         )
-        deepface_url = os.getenv("AI_SERVICE_DEEPFACE_URL") or "http://localhost:5005/api/v1"
-        return cls(secret=secret, device=device, min_det_score=min_det_score, deepface_url=deepface_url)
+        deepface_url = (
+            os.getenv("AI_SERVICE_DEEPFACE_URL") or "http://localhost:5005/api/v1"
+        )
+        return cls(
+            secret=secret,
+            device=device,
+            min_det_score=min_det_score,
+            deepface_url=deepface_url,
+        )

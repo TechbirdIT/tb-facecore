@@ -27,7 +27,8 @@ class DeepFaceClient:
         if resp.status_code != 200:
             detail = _safe_error(resp)
             raise DeepFaceError(f"sidecar returned {resp.status_code}: {detail}")
-        return resp.json().get("results", [])
+        results: list[dict] = resp.json().get("results", [])
+        return results
 
     async def health(self) -> bool:
         try:

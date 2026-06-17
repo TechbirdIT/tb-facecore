@@ -1,6 +1,7 @@
 """Stub routes return 501 Not Implemented until built out."""
 
 from fastapi.testclient import TestClient
+
 from ai_service.app import app
 
 client = TestClient(app)

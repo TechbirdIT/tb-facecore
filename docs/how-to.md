@@ -81,6 +81,18 @@ Two distinct secrets — don't mix them up:
 
 ## 3. Install the AI stack
 
+**Quick install (one command):**
+
+```bash
+git clone --recurse-submodules https://github.com/TechbirdIT/tb-facecore
+cd tb-facecore
+./install.sh            # venv + all three packages + generated .env secret
+                        # --dev adds test tooling; --with-sidecar brings up DeepFace
+```
+
+Then `make run` starts the service on :8080. The script prints the generated
+`AI_SERVICE_SECRET` to paste into Frappe (step 6). Manual steps below if you prefer:
+
 ```bash
 git clone --recurse-submodules https://github.com/TechbirdIT/tb-facecore
 cd tb-facecore

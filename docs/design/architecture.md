@@ -70,7 +70,8 @@ central Frappe server **without a later refactor**.
 | Unit | Location | Imports InsightFace | Responsibility |
 |------|----------|:--:|----------------|
 | `facecore` | `facerecog/facecore/` | yes | Pure AI engine. `analyze(image) -> list[DetectedFace]`. No I/O. |
-| `ai_service` | `facerecog/ai_service/` | via facecore | `POST /embed`: image → embedding. `POST /verify-id`, `POST /analyze`: stubs for ID verification and analytics. Decoupling boundary. |
+| `ai_service` | `facerecog/ai_service/` | via facecore | `POST /embed`: image → embedding (InsightFace, low-latency edge path). `POST /analyze`: proxies to DeepFace sidecar for server-side analytics. Decoupling boundary. |
+| `deepface sidecar` | `vendor/deepface/` (git submodule) | — | Docker stack: Flask API + Postgres + Weaviate + MinIO. Analytics engine. API at host port 5005. See [docs/deepface-sidecar.md](../deepface-sidecar.md). |
 | `face_attendance` | `frappe-bench/apps/face_attendance/` | **no** | Frappe app: enrollment DocTypes, sync API, settings. HTTP-calls the service. |
 | `edge_client` | `facerecog/edge_client/` | via facecore | Camera → liveness → embed → match → debounce → post check-in. Offline-resilient. |
 
@@ -79,6 +80,8 @@ central Frappe server **without a later refactor**.
 ---
 
 ## 3. Models & stack
+
+**Dual-engine split:** InsightFace (inside `ai_service`) handles `POST /embed` — real-time edge embeddings at sub-second latency. The DeepFace sidecar handles `POST /analyze` — server-side demographic analytics (age/gender/emotion/race) via Weaviate for later register/search. Different SLAs → separate processes.
 
 - **Detect + embed:** InsightFace `buffalo_l` pack — SCRFD detector + ArcFace r50 →
   512-dim L2-normalized embedding. Auto-downloads (~300 MB) on first run.

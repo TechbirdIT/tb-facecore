@@ -1,0 +1,68 @@
+# DeepFace Analytics Sidecar
+
+## What it is and why it exists
+
+This system runs two engines: **InsightFace** (`ai_service`, port 8080) handles real-time edge embeddings (`POST /embed`) with sub-second latency; **DeepFace** (this sidecar) handles server-side analytics (`POST /analyze` — demographics, and later Weaviate-backed face register/search). Different SLAs, different processes.
+
+## Prerequisite: private submodule
+
+The sidecar is `ekansh-tb/deepface`, a private fork. You need team access to `github.com/ekansh-tb/deepface` before the submodule can be fetched.
+
+## 1. Init the submodule
+
+Fresh clones — always recurse:
+
+```bash
+git clone --recurse-submodules https://github.com/TechbirdIT/tb-facecore
+```
+
+If you already have the repo cloned without submodules:
+
+```bash
+git submodule update --init vendor/deepface
+```
+
+## 2. Configure
+
+```bash
+cp vendor/deepface/docker/.env.example vendor/deepface/docker/.env
+```
+
+Edit `vendor/deepface/docker/.env` to set credentials, secrets, and any port overrides needed for your environment.
+
+## 3. Bring it up
+
+From the repo root (the top-level `docker-compose.yml` uses Compose v2 `include` to pull in `vendor/deepface/docker/docker-compose.yml`):
+
+```bash
+docker compose up -d
+docker compose ps
+```
+
+Tear down:
+
+```bash
+docker compose down
+```
+
+## 4. Host ports
+
+| Service | Host port | Container port |
+|---------|-----------|----------------|
+| DeepFace API | 5005 | 5000 |
+| Next.js UI | 3000 | 3000 |
+| Weaviate HTTP | 8080 | 8080 |
+| Weaviate gRPC | 50051 | 50051 |
+| MinIO API | 9000 | 9000 |
+| MinIO console | 9001 | 9001 |
+| Postgres | 5432 | 5432 |
+
+## 5. How `ai_service` reaches it
+
+Set `AI_SERVICE_DEEPFACE_URL` in the environment before starting `ai_service` (default: `http://localhost:5005/api/v1`; see `.env.example` at repo root).
+
+`POST /analyze` on `ai_service` proxies to the sidecar's `POST /api/v1/analyze` and returns `{"results": [...]}` with demographics (age, gender, emotion, race).
+
+## 6. Security note
+
+This increment treats the sidecar as internal/trusted on the Compose network — no auth wiring between `ai_service` and the DeepFace API. **Production must restrict access**: the fork contains its own auth blueprint; wiring it to `ai_service` is a later task.

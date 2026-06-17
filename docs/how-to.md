@@ -82,7 +82,7 @@ Two distinct secrets — don't mix them up:
 ## 3. Install the AI stack
 
 ```bash
-git clone https://github.com/TechbirdIT/tb-facecore
+git clone --recurse-submodules https://github.com/TechbirdIT/tb-facecore
 cd tb-facecore
 
 python3.11 -m venv venv
@@ -508,6 +508,7 @@ known-length event burst).
 ## References
 
 - Architecture & design decisions: [`docs/design/architecture.md`](design/architecture.md)
+- DeepFace analytics sidecar (Docker stack, `/analyze` endpoint): [`docs/deepface-sidecar.md`](deepface-sidecar.md)
 - Package internals: [`facecore/README.md`](../facecore/README.md),
   [`ai_service/README.md`](../ai_service/README.md),
   [`edge_client/README.md`](../edge_client/README.md)

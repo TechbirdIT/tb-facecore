@@ -37,3 +37,11 @@ skills-lock.json
 
 # OMC tooling state
 .omc/
+
+# RTSP dev scripts (local only)
+check_rtsp.py
+deep_scan.py
+discover_cameras.py
+discover_rtsp_devices.py
+rtsp_http_relay.py
+scan_rtsp.py

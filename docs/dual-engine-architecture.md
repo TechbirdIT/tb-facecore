@@ -20,6 +20,21 @@ Face AI in this platform now runs on **two separate engines**, each matched to a
 
 **Why separate, not combined:** the two have opposite performance profiles (fast-and-light vs heavy-and-slow), incompatible runtimes (ONNX vs TensorFlow loaded in one process fight over memory/CUDA), and embeddings that are **not cross-comparable** (an InsightFace vector and a DeepFace vector describe the same face differently and must never be matched against each other). Keeping them apart lets each scale and fail independently. `ai_service` is the single front door; it routes each request to the right engine.
 
+### Why two ArcFaces? (they are not the same model)
+
+A common point of confusion: DeepFace also offers an "ArcFace" model, and the edge engine (InsightFace) is *also* ArcFace-based — so why not drop one and standardize on the other?
+
+**Because "ArcFace" is a training method (a loss function), not a single model.** InsightFace's ArcFace (`buffalo_l`) and DeepFace's ArcFace are **different implementations** — different training data, preprocessing, face detector, and **different weights**. They produce **different, incompatible 512-d vectors for the same face.** One cannot be swapped for the other.
+
+Dropping the edge InsightFace ArcFace in favour of DeepFace's would mean:
+
+- **Re-enrolling everyone.** Every stored face embedding was computed by InsightFace; DeepFace's ArcFace cannot match against them. Switching forces a full re-embed migration.
+- **A slower, network-bound edge.** InsightFace is ONNX — light, fast, and runs on the edge device offline (the offline queue depends on this). DeepFace is TensorFlow — heavy, and relying on the server sidecar for every attendance punch adds a round-trip and breaks offline operation.
+- **Liveness re-validation.** The edge pipeline emits a `liveness_score`; DeepFace's anti-spoofing is wired differently and would need re-checking for parity.
+- **Collapsing back to a single engine** — the exact fragility (heavy TF runtime doing a fast edge job) the dual-engine split avoids.
+
+The dual-engine design exists *because* the two ArcFaces are incompatible. The InsightFace ArcFace stays on the edge for recognition; DeepFace's models stay inside the sidecar's own world (analytics, and later its own Weaviate index) and are **never cross-matched** with edge vectors.
+
 ```
                          ┌─────────────────────────────┐
    HR uploads photo ───► │  FRAPPE + face_attendance   │

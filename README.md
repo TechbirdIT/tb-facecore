@@ -4,6 +4,8 @@ Facial recognition biometric attendance for Frappe HRMS v16. Employees check in 
 
 This repository contains the AI/edge stack. The companion Frappe app lives at [TechbirdIT/tb-face_attendance](https://github.com/TechbirdIT/tb-face_attendance).
 
+> **On the `saurabh-test-dev` branch:** this is an experimental staging branch introducing a dual-engine architecture (InsightFace for real-time recognition + a DeepFace analytics sidecar). See [docs/dual-engine-architecture.md](docs/dual-engine-architecture.md).
+
 ## How it works
 
 HR uploads an employee photo in Frappe. The face is embedded as a 512-dimensional vector and stored against the employee record; an approval workflow gates which profiles sync to devices. Edge devices (kiosks, IP cameras) run a continuous recognition loop — when a face matches, a recognition event (with similarity and liveness scores) is posted to the `face_attendance` app, which creates the Employee Checkin server-side and keeps a full audit trail. Devices heartbeat on every sync tick; a scheduled job flags devices that go quiet. Frappe's shift engine derives IN/OUT and creates Attendance documents hourly.

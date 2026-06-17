@@ -1,0 +1,18 @@
+name: CI
+on:
+  push:
+    branches: [main, saurabh-test-dev]
+  pull_request:
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        # no submodules: the deepface fork is upstream and not exercised by unit tests
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install ai_service
+        run: pip install -e "ai_service[dev]"
+      - name: Run tests
+        run: cd ai_service && pytest -v

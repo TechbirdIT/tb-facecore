@@ -1,4 +1,3 @@
-# embedding_service/tests/test_embed.py
 import io
 
 import numpy as np
@@ -6,8 +5,9 @@ from facecore.models import DetectedFace
 from fastapi.testclient import TestClient
 from PIL import Image
 
-from embedding_service.app import MAX_UPLOAD_BYTES, app, get_analyzer, get_settings
-from embedding_service.config import Settings
+from ai_service.app import app
+from ai_service.config import Settings
+from ai_service.routes.embed import MAX_UPLOAD_BYTES, _get_settings, get_analyzer
 
 
 def _png_bytes():
@@ -25,14 +25,16 @@ class _Analyzer:
 
 
 def _face():
-    return DetectedFace(bbox=[0, 0, 10, 10], embedding=[0.1] * 512,
-                        det_score=0.9, liveness_score=0.8)
+    return DetectedFace(
+        bbox=[0, 0, 10, 10], embedding=[0.1] * 512,
+        det_score=0.9, liveness_score=0.8,
+    )
 
 
 def _client(faces, settings=None):
     settings = settings or Settings(secret=None, device="cpu", min_det_score=0.5)
     app.dependency_overrides[get_analyzer] = lambda: _Analyzer(faces)
-    app.dependency_overrides[get_settings] = lambda: settings
+    app.dependency_overrides[_get_settings] = lambda: settings
     return TestClient(app)
 
 
@@ -63,8 +65,10 @@ def test_multiple_faces_is_400():
 
 
 def test_low_det_score_is_400():
-    low = DetectedFace(bbox=[0, 0, 1, 1], embedding=[0.1] * 512,
-                       det_score=0.2, liveness_score=0.5)
+    low = DetectedFace(
+        bbox=[0, 0, 1, 1], embedding=[0.1] * 512,
+        det_score=0.2, liveness_score=0.5,
+    )
     client = _client([low])
     r = client.post("/embed", files={"file": ("x.png", _png_bytes(), "image/png")})
     assert r.status_code == 400
@@ -89,6 +93,9 @@ def test_secret_enforced_when_configured():
     )
     r = client.post("/embed", files={"file": ("x.png", _png_bytes(), "image/png")})
     assert r.status_code == 401
-    r2 = client.post("/embed", files={"file": ("x.png", _png_bytes(), "image/png")},
-                     headers={"X-Secret": "s3cret"})
+    r2 = client.post(
+        "/embed",
+        files={"file": ("x.png", _png_bytes(), "image/png")},
+        headers={"X-Secret": "s3cret"},
+    )
     assert r2.status_code == 200

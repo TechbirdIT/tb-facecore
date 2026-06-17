@@ -1,0 +1,6 @@
+# Top-level stack. The deepface sidecar is vendored as a git submodule and
+# its full compose (API + Postgres + Weaviate + MinIO + UI) is included as-is.
+# ai_service is run separately (uvicorn) during development; see docs/how-to.md.
+include:
+  - path: vendor/deepface/docker/docker-compose.yml
+    env_file: vendor/deepface/docker/.env

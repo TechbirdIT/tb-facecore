@@ -1,41 +1,39 @@
-"""FastAPI application for the embedding service."""
+"""POST /embed — compute ArcFace embedding from a single-face image."""
 
 from __future__ import annotations
 
 import io
-import secrets
+import secrets as _secrets
 
 import cv2
 import numpy as np
 from facecore import MODEL_VERSION, FaceAnalyzer
-from fastapi import Depends, FastAPI, File, Header, HTTPException, UploadFile
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile
 from PIL import Image
 from pydantic import BaseModel
 
-from embedding_service.config import Settings
+from ai_service.config import Settings
 
-app = FastAPI(
-    title="Embedding Service",
-    description="Compute face embeddings from images",
-    version="0.1.0",
-)
+router = APIRouter()
 
-# Guard against unbounded uploads / decompression bombs.
-MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB on the wire
-MAX_PIXELS = 50_000_000  # ~50 MP after decode
+MAX_UPLOAD_BYTES = 10 * 1024 * 1024  # 10 MB
+MAX_PIXELS = 50_000_000  # ~50 MP
 
-_settings = Settings.from_env()
 _analyzer: FaceAnalyzer | None = None
+_settings: Settings | None = None
 
 
-def get_settings() -> Settings:
+def _get_settings() -> Settings:
+    global _settings
+    if _settings is None:
+        _settings = Settings.from_env()
     return _settings
 
 
 def get_analyzer() -> FaceAnalyzer:
     global _analyzer
     if _analyzer is None:
-        _analyzer = FaceAnalyzer(device=_settings.device)
+        _analyzer = FaceAnalyzer(device=_get_settings().device)
     return _analyzer
 
 
@@ -46,29 +44,22 @@ class EmbeddingResponse(BaseModel):
     model_version: str
 
 
-@app.post("/embed", response_model=EmbeddingResponse)
+@router.post("/embed", response_model=EmbeddingResponse)
 async def embed(
     file: UploadFile = File(...),
     x_secret: str | None = Header(default=None),
-    settings: Settings = Depends(get_settings),
+    settings: Settings = Depends(_get_settings),
     analyzer: FaceAnalyzer = Depends(get_analyzer),
 ) -> EmbeddingResponse:
-    # Constant-time comparison to avoid leaking the secret via timing.
-    # secret is None = auth disabled (v1 localhost-only; prod sets the env var).
-    if settings.secret is not None and not secrets.compare_digest(
+    if settings.secret is not None and not _secrets.compare_digest(
         x_secret or "", settings.secret
     ):
         raise HTTPException(status_code=401, detail="invalid secret")
 
-    # Cap bytes read into memory. NOTE: Starlette spools the multipart body to
-    # a temp file before this runs, so this bounds RAM, not disk — enforce the
-    # wire size at the reverse proxy (client_max_body_size) in production.
     raw = await file.read(MAX_UPLOAD_BYTES + 1)
     if len(raw) > MAX_UPLOAD_BYTES:
         raise HTTPException(status_code=413, detail="file too large")
 
-    # Probe dimensions from the header BEFORE decoding, so a small compressed
-    # file cannot expand into an OOM allocation (decompression bomb).
     try:
         with Image.open(io.BytesIO(raw)) as probe:
             width, height = probe.size
@@ -94,8 +85,3 @@ async def embed(
         liveness_score=face.liveness_score,
         model_version=MODEL_VERSION,
     )
-
-
-@app.get("/health")
-async def health() -> dict:
-    return {"status": "ok", "version": "0.1.0"}

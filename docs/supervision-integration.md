@@ -37,7 +37,7 @@ It complements — never replaces — our ArcFace embedding match and MiniFASNet
 
 ## 3. Integration points
 
-All high-value seams are in **`edge_client`**. `facecore` and `embedding_service`
+All high-value seams are in **`edge_client`**. `facecore` and `ai_service`
 should stay untouched (see §3.5).
 
 ### 3.1 `edge_client/capture.py::process_frame` — the primary seam ★

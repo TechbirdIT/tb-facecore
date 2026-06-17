@@ -65,4 +65,6 @@ Set `AI_SERVICE_DEEPFACE_URL` in the environment before starting `ai_service` (d
 
 ## 6. Security note
 
-This increment treats the sidecar as internal/trusted on the Compose network — no auth wiring between `ai_service` and the DeepFace API. **Production must restrict access**: the fork contains its own auth blueprint; wiring it to `ai_service` is a later task.
+Inbound `/analyze` on `ai_service` enforces the same `X-Secret` header gate as `/embed` (active when `AI_SERVICE_SECRET` is set), and validates the upload as a decodable image before forwarding.
+
+The `ai_service` → DeepFace API hop is unauthenticated: this increment treats the sidecar as internal/trusted on the Compose network. **Production must restrict access**: the fork contains its own auth blueprint; wiring it to `ai_service` is a later task.

@@ -19,7 +19,6 @@ class Settings:
         secret = (
             os.getenv("AI_SERVICE_SECRET")
             or os.getenv("EMBEDDING_SERVICE_SECRET")
-            or None
         )
         device = (
             os.getenv("AI_SERVICE_DEVICE")

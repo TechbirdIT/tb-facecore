@@ -6,6 +6,8 @@ This repository contains the AI/edge stack. The companion Frappe app lives at [T
 
 The system runs a **dual-engine architecture**: InsightFace for fast real-time recognition on the edge, and a DeepFace analytics sidecar (Docker) for server-side analysis (`/analyze` demographics). The two engines are deliberately separate — see [docs/dual-engine-architecture.md](docs/dual-engine-architecture.md).
 
+> 🎞️ **Looking for the big picture?** Open the **[visual product overview / pitch deck](docs/pitch/index.html)** — a single self-contained page that walks through the end-to-end flow, features, architecture, use cases, install steps and roadmap (built for sharing with stakeholders and clients). See [docs/pitch/README.md](docs/pitch/README.md).
+
 ## How it works
 
 HR uploads an employee photo in Frappe. The face is embedded as a 512-dimensional vector and stored against the employee record; an approval workflow gates which profiles sync to devices. Edge devices (kiosks, IP cameras) run a continuous recognition loop — when a face matches, a recognition event (with similarity and liveness scores) is posted to the `face_attendance` app, which creates the Employee Checkin server-side and keeps a full audit trail. Devices heartbeat on every sync tick; a scheduled job flags devices that go quiet. Frappe's shift engine derives IN/OUT and creates Attendance documents hourly.

@@ -40,14 +40,24 @@ npx remotion render FaceCore out/facecore.mp4  --codec=h264 --crf=18   # higher 
 - **Fonts** — Space Grotesk (display), Plus Jakarta Sans (body), JetBrains Mono — via
   `@remotion/google-fonts` (closest Google-hosted match to the deck's Clash Display).
 
-## Adding narration / music
-There's no audio track yet. To add one:
-```tsx
-import { Audio, staticFile } from "remotion";
-// inside <FaceCore>:  <Audio src={staticFile("voiceover.mp3")} />
+## Narration
+The video ships **with voiceover by default** — one clip per scene in `public/vo/scene_*.mp3`,
+placed at each scene's start in `src/FaceCore.tsx`. The clips were synthesized locally with the
+macOS `say` engine (voice: Samantha) from [`voiceover-script.md`](voiceover-script.md), then
+encoded to MP3 with ffmpeg. Scene durations in the `D` map are paced to match the clip lengths.
+
+Regenerate the voiceover (e.g. to swap voices or edit copy):
+```bash
+# edit the lines, then re-synthesize a scene:
+say -v Samantha -r 172 -o public/vo/scene_3.aiff "your new line…"
+ffmpeg -y -i public/vo/scene_3.aiff -ar 44100 -ac 1 -b:a 128k public/vo/scene_3.mp3
+rm public/vo/scene_3.aiff
+# if a clip gets longer than its scene, bump that scene in the `D` map, then `npm run render`.
 ```
-Drop the file in a `public/` folder and re-render. (A 72s scratch VO script can be
-generated from the deck's section copy.)
+To use a higher-quality voice (ElevenLabs / Azure / a human read), just replace the
+`public/vo/scene_*.mp3` files — keep the same filenames and the wiring is unchanged.
+For background music, add another `<Audio src={staticFile("music.mp3")} volume={0.15} />`
+at the top level of `<FaceCore>`.
 
 > `node_modules/` and `out/` are gitignored — only the source is version-controlled.
 > Re-render locally to regenerate `out/facecore.mp4`.

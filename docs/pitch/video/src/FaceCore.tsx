@@ -1,9 +1,11 @@
 import React from "react";
 import {
   AbsoluteFill,
+  Audio,
   Sequence,
   interpolate,
   spring,
+  staticFile,
   useCurrentFrame,
   useVideoConfig,
   Easing,
@@ -24,12 +26,13 @@ const EMERALD = "#34e0a1";
 const VIOLET = "#a99bff";
 
 // ── scene timing (30fps) ──
+// scene durations are paced to the voiceover clips in public/vo (see voiceover-script.md)
 const D = {
   intro: 120,
   problem: 240,
   flow: 810,
-  arch: 360,
-  features: 360,
+  arch: 440,
+  features: 460,
   outro: 300,
 };
 const OFF = {
@@ -380,9 +383,6 @@ const Outro: React.FC = () => {
 export const FaceCore: React.FC = () => {
   return (
     <AbsoluteFill style={{ background: INK, fontFamily: BODY }}>
-      {/* VOICEOVER: add video/public/voiceover.mp3 (see voiceover-script.md), then uncomment:
-          <Audio src={staticFile("voiceover.mp3")} />
-          and add `Audio, staticFile` to the "remotion" import above. */}
       <Background />
       <Sequence from={OFF.intro} durationInFrames={D.intro}><Intro /></Sequence>
       <Sequence from={OFF.problem} durationInFrames={D.problem}><Problem /></Sequence>
@@ -390,6 +390,14 @@ export const FaceCore: React.FC = () => {
       <Sequence from={OFF.arch} durationInFrames={D.arch}><Architecture /></Sequence>
       <Sequence from={OFF.features} durationInFrames={D.features}><Features /></Sequence>
       <Sequence from={OFF.outro} durationInFrames={D.outro}><Outro /></Sequence>
+
+      {/* ── Voiceover (Samantha TTS) — one clip per scene, placed at the scene's start ── */}
+      <Sequence from={OFF.intro}><Audio src={staticFile("vo/scene_1.mp3")} /></Sequence>
+      <Sequence from={OFF.problem}><Audio src={staticFile("vo/scene_2.mp3")} /></Sequence>
+      <Sequence from={OFF.flow}><Audio src={staticFile("vo/scene_3.mp3")} /></Sequence>
+      <Sequence from={OFF.arch}><Audio src={staticFile("vo/scene_4.mp3")} /></Sequence>
+      <Sequence from={OFF.features}><Audio src={staticFile("vo/scene_5.mp3")} /></Sequence>
+      <Sequence from={OFF.outro}><Audio src={staticFile("vo/scene_6.mp3")} /></Sequence>
     </AbsoluteFill>
   );
 };

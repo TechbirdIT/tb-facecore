@@ -1,0 +1,661 @@
+<!doctype html>
+<html lang="en" class="scroll-smooth">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+<title>FaceCore — Edge Face-Recognition Attendance for Frappe HRMS · by Techbird IT</title>
+<meta name="description" content="On-prem, privacy-first facial-recognition attendance. Open IP cameras, passive liveness, fair presence-hours, native Frappe HRMS. No proprietary terminals, no per-seat SaaS." />
+
+<!-- Premium type: Clash Display (display) + Plus Jakarta Sans (body) -->
+<link rel="preconnect" href="https://api.fontshare.com" crossorigin />
+<link href="https://api.fontshare.com/v2/css?f[]=clash-display@400,500,600,700&f[]=plus-jakarta-sans@400,500,600,700&f[]=jetbrains-mono@400,500&display=swap" rel="stylesheet" />
+
+<script src="https://cdn.tailwindcss.com"></script>
+<script>
+tailwind.config = {
+  theme: {
+    extend: {
+      fontFamily: {
+        display: ['"Clash Display"', 'system-ui', 'sans-serif'],
+        sans: ['"Plus Jakarta Sans"', 'system-ui', 'sans-serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
+      },
+      colors: {
+        ink: '#050507',
+        mist: '#e7e8ee',
+        emerald: { glow: '#34e0a1' },
+        violet: { glow: '#8b7bff' },
+      },
+    },
+  },
+};
+</script>
+
+<style>
+  :root { --ease: cubic-bezier(0.22, 1, 0.36, 1); }
+  html, body { background: #050507; }
+  body { font-family: "Plus Jakarta Sans", system-ui, sans-serif; -webkit-font-smoothing: antialiased; color: #e7e8ee; overflow-x: hidden; }
+  .font-display { font-family: "Clash Display", sans-serif; }
+  ::selection { background: rgba(52,224,161,0.25); }
+
+  /* ── Background mesh orbs ── */
+  .mesh { position: fixed; inset: 0; z-index: 0; pointer-events: none; overflow: hidden; }
+  .orb { position: absolute; border-radius: 9999px; filter: blur(120px); opacity: 0.5; will-change: transform; }
+  .orb-1 { width: 46rem; height: 46rem; top: -16rem; left: -10rem; background: radial-gradient(circle, #1b6b4d 0%, transparent 70%); animation: drift1 26s var(--ease) infinite alternate; }
+  .orb-2 { width: 40rem; height: 40rem; top: 30%; right: -14rem; background: radial-gradient(circle, #3a2f7a 0%, transparent 70%); animation: drift2 30s var(--ease) infinite alternate; }
+  .orb-3 { width: 38rem; height: 38rem; bottom: -16rem; left: 28%; background: radial-gradient(circle, #0f5e63 0%, transparent 72%); animation: drift3 34s var(--ease) infinite alternate; }
+  @keyframes drift1 { to { transform: translate3d(8rem, 6rem, 0) scale(1.12); } }
+  @keyframes drift2 { to { transform: translate3d(-7rem, 5rem, 0) scale(1.08); } }
+  @keyframes drift3 { to { transform: translate3d(5rem, -6rem, 0) scale(1.14); } }
+
+  /* film grain */
+  .grain { position: fixed; inset: 0; z-index: 50; pointer-events: none; opacity: 0.035;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='3'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"); }
+
+  /* ── Double-bezel cards ── */
+  .shell { background: rgba(255,255,255,0.04); border: 1px solid rgba(255,255,255,0.07); border-radius: 2rem; padding: 0.4rem; }
+  .core { background: linear-gradient(180deg, rgba(20,21,27,0.92), rgba(10,11,15,0.92)); border: 1px solid rgba(255,255,255,0.06); border-radius: calc(2rem - 0.4rem); box-shadow: inset 0 1px 1px rgba(255,255,255,0.06); }
+  .hairline { border: 1px solid rgba(255,255,255,0.08); }
+
+  .eyebrow { font-size: 10px; letter-spacing: 0.24em; text-transform: uppercase; color: #7df3c0; }
+
+  /* gradient text */
+  .grad { background: linear-gradient(120deg, #fff 18%, #7df3c0 55%, #a99bff 88%); -webkit-background-clip: text; background-clip: text; color: transparent; }
+
+  /* ── reveal on scroll ── */
+  .reveal { opacity: 0; transform: translateY(2.2rem); filter: blur(8px); transition: opacity 0.9s var(--ease), transform 0.9s var(--ease), filter 0.9s var(--ease); }
+  .reveal.in { opacity: 1; transform: none; filter: none; }
+  [data-delay="1"] { transition-delay: 0.08s; }
+  [data-delay="2"] { transition-delay: 0.16s; }
+  [data-delay="3"] { transition-delay: 0.24s; }
+  [data-delay="4"] { transition-delay: 0.32s; }
+  [data-delay="5"] { transition-delay: 0.40s; }
+
+  /* magnetic CTA */
+  .cta { transition: transform 0.5s var(--ease), background 0.5s var(--ease); }
+  .cta:active { transform: scale(0.975); }
+  .cta .knob { transition: transform 0.5s var(--ease), background 0.5s var(--ease); }
+  .cta:hover .knob { transform: translate(3px,-2px) scale(1.06); }
+
+  /* flow rail */
+  .flow-step { transition: all 0.6s var(--ease); }
+  .flow-step.active { background: rgba(52,224,161,0.07); border-color: rgba(52,224,161,0.35); transform: translateY(-4px); box-shadow: 0 24px 60px -28px rgba(52,224,161,0.55); }
+  .flow-step.active .stepno { background: linear-gradient(135deg,#34e0a1,#13b07d); color: #04130d; border-color: transparent; }
+
+  .dash { stroke-dasharray: 5 7; animation: march 1.1s linear infinite; }
+  @keyframes march { to { stroke-dashoffset: -24; } }
+
+  .pulse-dot { animation: pdot 2.6s var(--ease) infinite; }
+  @keyframes pdot { 0%,100% { opacity: 0.35; } 50% { opacity: 1; } }
+
+  /* nav */
+  .nav-pill { backdrop-filter: blur(20px) saturate(160%); background: rgba(10,11,15,0.6); border: 1px solid rgba(255,255,255,0.08); }
+  a.navlink { position: relative; }
+  a.navlink::after { content:''; position:absolute; left:0; bottom:-4px; height:1px; width:0; background:#7df3c0; transition: width 0.4s var(--ease); }
+  a.navlink:hover::after { width: 100%; }
+
+  /* scan animation on hero face */
+  .scanline { animation: scan 3.4s var(--ease) infinite; }
+  @keyframes scan { 0%,100% { transform: translateY(0); opacity:0; } 10% {opacity:1;} 50% { transform: translateY(150px); opacity:1; } 90%{opacity:1;} }
+
+  .tick { color:#34e0a1; }
+  .soon { color:#a99bff; }
+  details > summary { list-style: none; cursor: pointer; }
+  details > summary::-webkit-details-marker { display:none; }
+  details[open] .chev { transform: rotate(45deg); }
+</style>
+</head>
+
+<body class="relative">
+<div class="mesh"><div class="orb orb-1"></div><div class="orb orb-2"></div><div class="orb orb-3"></div></div>
+<div class="grain"></div>
+
+<!-- ───────────────────────── NAV ───────────────────────── -->
+<header class="fixed top-0 inset-x-0 z-40 flex justify-center px-4">
+  <nav class="nav-pill mt-5 w-full max-w-5xl rounded-full px-3 py-2.5 flex items-center justify-between">
+    <a href="#top" class="flex items-center gap-2.5 pl-2">
+      <span class="grid h-7 w-7 place-items-center rounded-lg bg-gradient-to-br from-emerald-glow to-[#13b07d] text-ink">
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><path d="M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/><circle cx="12" cy="11" r="2.4"/><path d="M8.5 16c.7-1.6 2-2.4 3.5-2.4s2.8.8 3.5 2.4"/></svg>
+      </span>
+      <span class="font-display text-[15px] font-semibold tracking-tight">FaceCore</span>
+      <span class="hidden sm:inline text-[11px] text-mist/40 font-mono">/ by Techbird IT</span>
+    </a>
+    <div class="hidden md:flex items-center gap-7 text-[13px] text-mist/65">
+      <a class="navlink hover:text-white" href="#how">How it works</a>
+      <a class="navlink hover:text-white" href="#features">Features</a>
+      <a class="navlink hover:text-white" href="#architecture">Architecture</a>
+      <a class="navlink hover:text-white" href="#install">Install</a>
+      <a class="navlink hover:text-white" href="#roadmap">Roadmap</a>
+    </div>
+    <a href="#install" class="cta group flex items-center gap-2 rounded-full bg-white pl-4 pr-1.5 py-1.5 text-ink text-[13px] font-semibold">
+      Deploy
+      <span class="knob grid h-7 w-7 place-items-center rounded-full bg-ink/10">
+        <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M7 17 17 7M9 7h8v8"/></svg>
+      </span>
+    </a>
+  </nav>
+</header>
+
+<!-- ───────────────────────── HERO ───────────────────────── -->
+<section id="top" class="relative z-10 min-h-[100dvh] flex items-center px-5 pt-36 pb-20">
+  <div class="mx-auto w-full max-w-6xl grid lg:grid-cols-12 gap-10 items-center">
+    <div class="lg:col-span-7">
+      <div class="reveal in inline-flex items-center gap-2 rounded-full hairline bg-white/5 px-3 py-1 mb-7">
+        <span class="h-1.5 w-1.5 rounded-full bg-emerald-glow pulse-dot"></span>
+        <span class="eyebrow">Edge AI · Self-hosted · Frappe HRMS v16</span>
+      </div>
+      <h1 class="reveal in font-display text-[clamp(2.6rem,7vw,5.2rem)] leading-[0.98] font-semibold tracking-[-0.02em]">
+        Attendance that<br><span class="grad">recognises faces,</span><br>not badges.
+      </h1>
+      <p class="reveal in mt-7 max-w-xl text-[15px] sm:text-[17px] leading-relaxed text-mist/60" data-delay="1">
+        FaceCore turns any ordinary IP camera into a biometric clock. Faces are matched at the edge in
+        milliseconds, spoof attempts are rejected by passive liveness, and attendance lands natively in
+        Frappe HRMS — <span class="text-mist/90">on your own servers, with no proprietary terminals and no per-seat SaaS fees.</span>
+      </p>
+      <div class="reveal in mt-9 flex flex-wrap items-center gap-3" data-delay="2">
+        <a href="#how" class="cta group flex items-center gap-2 rounded-full bg-gradient-to-br from-emerald-glow to-[#13b07d] pl-5 pr-1.5 py-2 text-ink text-[14px] font-semibold">
+          See how it works
+          <span class="knob grid h-8 w-8 place-items-center rounded-full bg-ink/15">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+          </span>
+        </a>
+        <a href="#features" class="cta rounded-full hairline bg-white/5 px-5 py-2.5 text-[14px] text-mist/80 hover:bg-white/10">Explore the platform</a>
+      </div>
+
+      <div class="reveal in mt-12 grid grid-cols-2 sm:grid-cols-4 gap-5" data-delay="3">
+        <div><div class="font-display text-2xl font-semibold text-white">&lt;1s</div><div class="text-[11px] text-mist/45 mt-1 uppercase tracking-wider">Edge match</div></div>
+        <div><div class="font-display text-2xl font-semibold text-white">512‑d</div><div class="text-[11px] text-mist/45 mt-1 uppercase tracking-wider">ArcFace vector</div></div>
+        <div><div class="font-display text-2xl font-semibold text-white">100%</div><div class="text-[11px] text-mist/45 mt-1 uppercase tracking-wider">Offline‑capable</div></div>
+        <div><div class="font-display text-2xl font-semibold text-white">0</div><div class="text-[11px] text-mist/45 mt-1 uppercase tracking-wider">Photos stored</div></div>
+      </div>
+    </div>
+
+    <!-- hero visual: scanning face tile -->
+    <div class="reveal in lg:col-span-5" data-delay="2">
+      <div class="shell">
+        <div class="core p-5">
+          <div class="flex items-center justify-between mb-4">
+            <span class="text-[11px] font-mono text-mist/50">edge-001 · Floor 2 · live</span>
+            <span class="flex items-center gap-1.5 text-[11px] text-emerald-glow"><span class="h-1.5 w-1.5 rounded-full bg-emerald-glow pulse-dot"></span>matching</span>
+          </div>
+          <div class="relative aspect-[4/5] rounded-2xl overflow-hidden bg-gradient-to-b from-[#11131a] to-[#0a0b10] hairline">
+            <!-- face wireframe -->
+            <svg class="absolute inset-0 w-full h-full" viewBox="0 0 300 375" fill="none">
+              <defs><linearGradient id="g" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#34e0a1"/><stop offset="1" stop-color="#8b7bff"/></linearGradient></defs>
+              <ellipse cx="150" cy="165" rx="78" ry="96" stroke="url(#g)" stroke-width="1" opacity="0.55"/>
+              <path d="M95 150 q55 40 110 0" stroke="url(#g)" stroke-width="1" opacity="0.4"/>
+              <circle cx="120" cy="145" r="9" stroke="#34e0a1" stroke-width="1" opacity="0.7"/>
+              <circle cx="180" cy="145" r="9" stroke="#34e0a1" stroke-width="1" opacity="0.7"/>
+              <path d="M150 150 v34 M138 190 q12 9 24 0" stroke="url(#g)" stroke-width="1" opacity="0.5"/>
+              <g opacity="0.85">
+                <circle cx="120" cy="145" r="2" fill="#34e0a1"/><circle cx="180" cy="145" r="2" fill="#34e0a1"/>
+                <circle cx="150" cy="184" r="2" fill="#8b7bff"/><circle cx="110" cy="200" r="2" fill="#8b7bff"/><circle cx="190" cy="200" r="2" fill="#8b7bff"/>
+              </g>
+              <rect x="72" y="68" width="156" height="200" rx="14" stroke="#34e0a1" stroke-width="1.4" stroke-dasharray="22 10" opacity="0.6"/>
+            </svg>
+            <div class="scanline absolute left-6 right-6 h-px bg-gradient-to-r from-transparent via-emerald-glow to-transparent" style="top:80px"></div>
+          </div>
+          <div class="mt-4 grid grid-cols-3 gap-2 text-center">
+            <div class="rounded-xl hairline bg-white/[0.03] py-2"><div class="text-[10px] text-mist/40 uppercase tracking-wide">Match</div><div class="text-emerald-glow font-mono text-sm mt-0.5">0.87</div></div>
+            <div class="rounded-xl hairline bg-white/[0.03] py-2"><div class="text-[10px] text-mist/40 uppercase tracking-wide">Liveness</div><div class="text-emerald-glow font-mono text-sm mt-0.5">0.94</div></div>
+            <div class="rounded-xl hairline bg-white/[0.03] py-2"><div class="text-[10px] text-mist/40 uppercase tracking-wide">Det</div><div class="text-emerald-glow font-mono text-sm mt-0.5">0.91</div></div>
+          </div>
+          <div class="mt-3 flex items-center justify-between rounded-xl bg-emerald-glow/10 px-3.5 py-2.5 hairline border-emerald-glow/20">
+            <span class="text-[13px] text-white font-medium">✓ Checkin created · server-side</span>
+            <span class="text-[11px] font-mono text-mist/50">09:01:14</span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── VIDEO ───────────────────────── -->
+<section id="watch" class="relative z-10 px-5 pb-8 -mt-4">
+  <div class="mx-auto max-w-5xl">
+    <div class="reveal text-center mb-7">
+      <div class="inline-flex items-center gap-2 rounded-full hairline bg-white/5 px-3 py-1">
+        <span class="h-1.5 w-1.5 rounded-full bg-violet-glow pulse-dot"></span>
+        <span class="eyebrow" style="color:#a99bff">73-second overview</span>
+      </div>
+    </div>
+    <div class="reveal shell" data-delay="1">
+      <div class="core p-2 sm:p-2.5">
+        <div class="relative rounded-[1.4rem] overflow-hidden hairline group">
+          <video id="heroVid" class="w-full block aspect-video bg-black" playsinline muted loop preload="metadata"
+                 poster="assets/poster.png">
+            <source src="assets/facecore.mp4" type="video/mp4" />
+          </video>
+          <!-- play overlay -->
+          <button id="playBtn" aria-label="Play overview" class="absolute inset-0 grid place-items-center bg-black/30 transition-opacity duration-500">
+            <span class="cta group grid h-20 w-20 place-items-center rounded-full bg-white/95 text-ink shadow-2xl">
+              <svg width="26" height="26" viewBox="0 0 24 24" fill="currentColor" class="ml-1"><path d="M8 5v14l11-7z"/></svg>
+            </span>
+          </button>
+        </div>
+      </div>
+    </div>
+    <p class="reveal mt-4 text-center text-[12.5px] text-mist/40" data-delay="2">Motion walkthrough with an ambient score · tap to play with sound · ~73 seconds</p>
+  </div>
+</section>
+
+<!-- ───────────────────────── TRUST STRIP ───────────────────────── -->
+<section class="relative z-10 px-5 py-10 border-y border-white/5">
+  <div class="mx-auto max-w-6xl flex flex-wrap items-center justify-center gap-x-8 gap-y-3 text-[12px] text-mist/40 font-mono">
+    <span>InsightFace · ArcFace r50</span><span class="text-mist/20">•</span>
+    <span>MiniFASNet liveness</span><span class="text-mist/20">•</span>
+    <span>ONNX Runtime</span><span class="text-mist/20">•</span>
+    <span>RTSP / ONVIF cameras</span><span class="text-mist/20">•</span>
+    <span>Frappe / ERPNext / HRMS v16</span><span class="text-mist/20">•</span>
+    <span>Self-hosted</span>
+  </div>
+</section>
+
+<!-- ───────────────────────── PROBLEM ───────────────────────── -->
+<section class="relative z-10 px-5 py-24">
+  <div class="mx-auto max-w-6xl">
+    <div class="reveal max-w-2xl">
+      <div class="eyebrow mb-4">The status quo is broken</div>
+      <h2 class="font-display text-[clamp(2rem,4.5vw,3.2rem)] leading-[1.05] font-semibold tracking-tight">Cards get shared. Punches get faked. Hours get unfair.</h2>
+    </div>
+    <div class="mt-12 grid md:grid-cols-3 gap-5">
+      <div class="reveal shell"><div class="core h-full p-7">
+        <svg class="text-violet-glow mb-5" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><path d="M16 3.13a4 4 0 0 1 0 7.75M22 21v-2a4 4 0 0 0-3-3.87M9 7a4 4 0 1 0 8 0 4 4 0 0 0-8 0ZM1 21v-2a4 4 0 0 1 4-4h6a4 4 0 0 1 4 4v2"/></svg>
+        <h3 class="font-display text-lg font-semibold mb-2">Buddy punching</h3>
+        <p class="text-[14px] text-mist/55 leading-relaxed">RFID cards and PINs are trivially shared. Proxy attendance silently inflates payroll on every shift.</p>
+      </div></div>
+      <div class="reveal shell" data-delay="1"><div class="core h-full p-7">
+        <svg class="text-violet-glow mb-5" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3" y="4" width="18" height="14" rx="2"/><path d="M3 10h18M8 21h8"/></svg>
+        <h3 class="font-display text-lg font-semibold mb-2">Locked-in terminals</h3>
+        <p class="text-[14px] text-mist/55 leading-relaxed">Proprietary face terminals mean capex per door, closed data, vendor lock-in — and cloud SaaS can't run on-prem at all.</p>
+      </div></div>
+      <div class="reveal shell" data-delay="2"><div class="core h-full p-7">
+        <svg class="text-violet-glow mb-5" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg>
+        <h3 class="font-display text-lg font-semibold mb-2">Unfair IN/OUT flips</h3>
+        <p class="text-[14px] text-mist/55 leading-relaxed">Step out of frame for a folder and naive IN/OUT logic records "worked 12 seconds." Multi-camera sites produce nonsense hours.</p>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── HOW IT WORKS (animated flow) ───────────────────────── -->
+<section id="how" class="relative z-10 px-5 py-24">
+  <div class="mx-auto max-w-6xl">
+    <div class="reveal text-center max-w-2xl mx-auto mb-14">
+      <div class="eyebrow mb-4">End-to-end in five moves</div>
+      <h2 class="font-display text-[clamp(2rem,4.5vw,3.2rem)] leading-[1.05] font-semibold tracking-tight">From a face in front of a camera<br class="hidden sm:block"> to attendance in HRMS.</h2>
+    </div>
+
+    <!-- animated rail -->
+    <div class="reveal shell">
+      <div class="core p-6 sm:p-9">
+        <div class="grid lg:grid-cols-5 gap-4" id="flowGrid">
+          <!-- steps injected style; written inline for no-JS fallback -->
+          <div class="flow-step active hairline rounded-2xl p-5 bg-white/[0.02]" data-step="0">
+            <div class="stepno grid h-9 w-9 place-items-center rounded-xl hairline text-[13px] font-mono mb-4">01</div>
+            <h3 class="font-display font-semibold text-[15px] mb-1.5">Enroll</h3>
+            <p class="text-[12.5px] text-mist/55 leading-relaxed">Employee self-registers a webcam photo at <span class="font-mono text-mist/80">/face</span>. The image is embedded into a 512-d vector — then discarded.</p>
+          </div>
+          <div class="flow-step hairline rounded-2xl p-5 bg-white/[0.02]" data-step="1">
+            <div class="stepno grid h-9 w-9 place-items-center rounded-xl hairline text-[13px] font-mono mb-4">02</div>
+            <h3 class="font-display font-semibold text-[15px] mb-1.5">Approve</h3>
+            <p class="text-[12.5px] text-mist/55 leading-relaxed">HR runs the Face Profile Approval workflow. <span class="text-mist/80">Only Approved</span> profiles ever sync to devices.</p>
+          </div>
+          <div class="flow-step hairline rounded-2xl p-5 bg-white/[0.02]" data-step="2">
+            <div class="stepno grid h-9 w-9 place-items-center rounded-xl hairline text-[13px] font-mono mb-4">03</div>
+            <h3 class="font-display font-semibold text-[15px] mb-1.5">Sync to edge</h3>
+            <p class="text-[12.5px] text-mist/55 leading-relaxed">Each camera device pulls approved embeddings incrementally and caches them locally — no per-frame network hop.</p>
+          </div>
+          <div class="flow-step hairline rounded-2xl p-5 bg-white/[0.02]" data-step="3">
+            <div class="stepno grid h-9 w-9 place-items-center rounded-xl hairline text-[13px] font-mono mb-4">04</div>
+            <h3 class="font-display font-semibold text-[15px] mb-1.5">Recognise</h3>
+            <p class="text-[12.5px] text-mist/55 leading-relaxed">Edge detects, tracks & matches in milliseconds. Passive liveness blocks photo/video spoofs — identity resolved once per track.</p>
+          </div>
+          <div class="flow-step hairline rounded-2xl p-5 bg-white/[0.02]" data-step="4">
+            <div class="stepno grid h-9 w-9 place-items-center rounded-xl hairline text-[13px] font-mono mb-4">05</div>
+            <h3 class="font-display font-semibold text-[15px] mb-1.5">Check-in</h3>
+            <p class="text-[12.5px] text-mist/55 leading-relaxed">A signed event is posted; the server creates the Employee Checkin and HRMS's native engine derives attendance.</p>
+          </div>
+        </div>
+
+        <!-- live data ribbon -->
+        <div class="mt-6 rounded-2xl bg-black/40 hairline p-4 font-mono text-[12px] overflow-hidden">
+          <div class="flex items-center gap-2 text-mist/40 mb-2"><span class="h-2 w-2 rounded-full bg-emerald-glow pulse-dot"></span> data flowing · camera → edge → frappe</div>
+          <div id="ribbon" class="text-mist/70 whitespace-nowrap"></div>
+        </div>
+      </div>
+    </div>
+
+    <p class="reveal mt-5 text-center text-[13px] text-mist/40">No parallel attendance logic — FaceCore feeds Frappe HRMS's <span class="text-mist/70">native</span> shift auto-attendance. Every sighting also builds a fair <span class="text-mist/70">presence-hours</span> timeline.</p>
+  </div>
+</section>
+
+<!-- ───────────────────────── FEATURES BENTO ───────────────────────── -->
+<section id="features" class="relative z-10 px-5 py-24">
+  <div class="mx-auto max-w-6xl">
+    <div class="reveal max-w-2xl mb-14">
+      <div class="eyebrow mb-4">Capabilities</div>
+      <h2 class="font-display text-[clamp(2rem,4.5vw,3.2rem)] leading-[1.05] font-semibold tracking-tight">Everything a serious deployment needs — and the fairness others skip.</h2>
+    </div>
+
+    <div class="grid md:grid-cols-6 gap-4 auto-rows-[minmax(0,1fr)]">
+      <!-- big: recognition -->
+      <div class="reveal shell md:col-span-3 md:row-span-2"><div class="core h-full p-7 flex flex-col">
+        <div class="flex items-center gap-2.5 mb-4"><span class="grid h-9 w-9 place-items-center rounded-xl bg-emerald-glow/12 text-emerald-glow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="11" cy="11" r="7"/><path d="m21 21-4.3-4.3"/></svg></span><h3 class="font-display text-xl font-semibold">Sub-second edge recognition</h3></div>
+        <p class="text-[14px] text-mist/55 leading-relaxed">InsightFace <span class="text-mist/85">buffalo_l</span> (SCRFD detector + ArcFace r50) produces a 512-d embedding; an in-memory NumPy cosine match is sub-millisecond up to ~50k faces per site. Each edge holds only its own location's faces.</p>
+        <div class="mt-auto pt-6 grid grid-cols-3 gap-2 font-mono text-[11px]">
+          <span class="rounded-lg hairline bg-white/[0.03] px-2 py-2 text-center text-mist/60">SCRFD</span>
+          <span class="rounded-lg hairline bg-white/[0.03] px-2 py-2 text-center text-mist/60">ArcFace</span>
+          <span class="rounded-lg hairline bg-white/[0.03] px-2 py-2 text-center text-mist/60">ONNX</span>
+        </div>
+      </div></div>
+
+      <!-- liveness -->
+      <div class="reveal shell md:col-span-3" data-delay="1"><div class="core h-full p-7">
+        <div class="flex items-center gap-2.5 mb-3"><span class="grid h-9 w-9 place-items-center rounded-xl bg-emerald-glow/12 text-emerald-glow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10Z"/><path d="m9 12 2 2 4-4"/></svg></span><h3 class="font-display text-lg font-semibold">Passive anti-spoof liveness</h3></div>
+        <p class="text-[14px] text-mist/55 leading-relaxed">MiniFASNet rejects printed photos and screen-replay attacks with <span class="text-mist/85">zero user interaction</span> — no blink, no head-turn. A flat photo scores near-zero and is refused.</p>
+      </div></div>
+
+      <!-- presence -->
+      <div class="reveal shell md:col-span-3" data-delay="2"><div class="core h-full p-7">
+        <div class="flex items-center gap-2.5 mb-3"><span class="grid h-9 w-9 place-items-center rounded-xl bg-violet-glow/12 text-violet-glow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3 2"/></svg></span><h3 class="font-display text-lg font-semibold">Fair presence-hours</h3></div>
+        <p class="text-[14px] text-mist/55 leading-relaxed">Sightings stitch into <span class="text-mist/85">Presence Sessions</span> per area — a session only ends after a configurable gap (default 12 min). A short break doesn't end the day; a long lunch isn't counted.</p>
+      </div></div>
+
+      <!-- cooldown -->
+      <div class="reveal shell md:col-span-2" data-delay="1"><div class="core h-full p-7">
+        <span class="grid h-9 w-9 place-items-center rounded-xl bg-white/5 text-mist/80 mb-3"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M3 12a9 9 0 1 0 9-9 9.7 9.7 0 0 0-6.7 2.7L3 8"/><path d="M3 4v4h4"/></svg></span>
+        <h3 class="font-display text-base font-semibold mb-1.5">Cross-camera cooldown</h3>
+        <p class="text-[13px] text-mist/55 leading-relaxed">Dozens of sightings across many cameras collapse to one check-in per window. No double-counting.</p>
+      </div></div>
+
+      <!-- fleet health -->
+      <div class="reveal shell md:col-span-2" data-delay="2"><div class="core h-full p-7">
+        <span class="grid h-9 w-9 place-items-center rounded-xl bg-white/5 text-mist/80 mb-3"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg></span>
+        <h3 class="font-display text-base font-semibold mb-1.5">Device fleet health</h3>
+        <p class="text-[13px] text-mist/55 leading-relaxed">Heartbeats, last-seen, app version & automatic stale-device detection across the whole edge fleet.</p>
+      </div></div>
+
+      <!-- portal -->
+      <div class="reveal shell md:col-span-2" data-delay="3"><div class="core h-full p-7">
+        <span class="grid h-9 w-9 place-items-center rounded-xl bg-white/5 text-mist/80 mb-3"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8m-4-4v4"/></svg></span>
+        <h3 class="font-display text-base font-semibold mb-1.5">Employee self-service</h3>
+        <p class="text-[13px] text-mist/55 leading-relaxed">A frappe-ui SPA at <span class="font-mono">/face</span>: webcam register, live status, and a rate-limited self-test.</p>
+      </div></div>
+
+      <!-- privacy big -->
+      <div class="reveal shell md:col-span-3" data-delay="1"><div class="core h-full p-7">
+        <div class="flex items-center gap-2.5 mb-3"><span class="grid h-9 w-9 place-items-center rounded-xl bg-emerald-glow/12 text-emerald-glow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><rect x="4" y="11" width="16" height="10" rx="2"/><path d="M8 11V7a4 4 0 0 1 8 0v4"/></svg></span><h3 class="font-display text-lg font-semibold">Privacy by design</h3></div>
+        <p class="text-[14px] text-mist/55 leading-relaxed">Embeddings are one-way transforms — you cannot reconstruct a face from them. The enrollment image is discarded after embedding, the vector field is permission-restricted in Desk, and consent text + version are captured per profile.</p>
+      </div></div>
+
+      <!-- audit big -->
+      <div class="reveal shell md:col-span-3" data-delay="2"><div class="core h-full p-7">
+        <div class="flex items-center gap-2.5 mb-3"><span class="grid h-9 w-9 place-items-center rounded-xl bg-emerald-glow/12 text-emerald-glow"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.4"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><path d="M14 2v6h6M9 14l2 2 4-4"/></svg></span><h3 class="font-display text-lg font-semibold">Full audit trail & offline queue</h3></div>
+        <p class="text-[14px] text-mist/55 leading-relaxed">Every recognition is a Face Recognition Event with similarity/liveness scores, device linkage and a deduplication index. Edge devices keep a durable SQLite queue and drain it automatically when the network returns.</p>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── ARCHITECTURE ───────────────────────── -->
+<section id="architecture" class="relative z-10 px-5 py-24">
+  <div class="mx-auto max-w-6xl">
+    <div class="reveal max-w-2xl mb-14">
+      <div class="eyebrow mb-4">Dual-engine architecture</div>
+      <h2 class="font-display text-[clamp(2rem,4.5vw,3.2rem)] leading-[1.05] font-semibold tracking-tight">Two engines, two jobs — deliberately not merged.</h2>
+      <p class="mt-5 text-[15px] text-mist/55 leading-relaxed">A fast, light edge engine answers <span class="text-mist/85">"who is this, right now?"</span> for attendance. A separate heavy analytics sidecar answers <span class="text-mist/85">"what can we learn from this face?"</span> They scale and fail independently behind one gateway.</p>
+    </div>
+
+    <div class="reveal shell"><div class="core p-6 sm:p-10">
+      <div class="grid lg:grid-cols-4 gap-4 items-stretch text-center">
+        <!-- frappe -->
+        <div class="rounded-2xl hairline bg-white/[0.02] p-6 flex flex-col">
+          <span class="eyebrow mb-3 block">System of record</span>
+          <h4 class="font-display text-base font-semibold mb-2">Frappe HRMS</h4>
+          <p class="text-[12.5px] text-mist/50 leading-relaxed">Profiles · approval workflow · device registry · events · settings · <span class="font-mono">/face</span> portal</p>
+          <div class="mt-auto pt-4 font-mono text-[10px] text-mist/35">:8000</div>
+        </div>
+        <!-- gateway -->
+        <div class="rounded-2xl bg-emerald-glow/[0.06] hairline border-emerald-glow/25 p-6 flex flex-col">
+          <span class="eyebrow mb-3 block">Single AI gateway</span>
+          <h4 class="font-display text-base font-semibold mb-2">ai_service</h4>
+          <p class="text-[12.5px] text-mist/55 leading-relaxed">FastAPI · <span class="font-mono">/embed</span> (real-time, in-process) · <span class="font-mono">/analyze</span> (proxy) · secret-gated</p>
+          <div class="mt-auto pt-4 font-mono text-[10px] text-emerald-glow/70">:8080</div>
+        </div>
+        <!-- edge -->
+        <div class="rounded-2xl hairline bg-white/[0.02] p-6 flex flex-col">
+          <span class="eyebrow mb-3 block">On the edge</span>
+          <h4 class="font-display text-base font-semibold mb-2">edge_client</h4>
+          <p class="text-[12.5px] text-mist/50 leading-relaxed">Multi-camera · IoU tracking · NumPy match · liveness · debounce · offline SQLite</p>
+          <div class="mt-auto pt-4 font-mono text-[10px] text-mist/35">RTSP / ONVIF</div>
+        </div>
+        <!-- sidecar -->
+        <div class="rounded-2xl bg-violet-glow/[0.05] hairline border-violet-glow/20 p-6 flex flex-col">
+          <span class="eyebrow mb-3 block soon">Analytics sidecar</span>
+          <h4 class="font-display text-base font-semibold mb-2">DeepFace stack</h4>
+          <p class="text-[12.5px] text-mist/50 leading-relaxed">Docker · demographics & emotion · Weaviate · MinIO · Postgres — async, offline-only</p>
+          <div class="mt-auto pt-4 font-mono text-[10px] text-mist/35">:5005</div>
+        </div>
+      </div>
+      <div class="mt-6 grid sm:grid-cols-3 gap-3 text-[12.5px]">
+        <div class="rounded-xl hairline bg-black/30 p-4 text-mist/55"><span class="text-emerald-glow font-mono">/embed →</span> InsightFace ArcFace · fast, edge-grade, runs offline</div>
+        <div class="rounded-xl hairline bg-black/30 p-4 text-mist/55"><span class="text-violet-glow font-mono">/analyze →</span> DeepFace TensorFlow · heavy, async, never cross-matched with edge vectors</div>
+        <div class="rounded-xl hairline bg-black/30 p-4 text-mist/55"><span class="text-mist/80 font-mono">Frappe</span> never imports AI — it only calls HTTP. Heavy AI stays off the bench.</div>
+      </div>
+    </div></div>
+  </div>
+</section>
+
+<!-- ───────────────────────── USE CASES ───────────────────────── -->
+<section class="relative z-10 px-5 py-24">
+  <div class="mx-auto max-w-6xl">
+    <div class="reveal max-w-2xl mb-12">
+      <div class="eyebrow mb-4">Where it fits</div>
+      <h2 class="font-display text-[clamp(2rem,4.5vw,3.2rem)] leading-[1.05] font-semibold tracking-tight">One platform, many floors.</h2>
+    </div>
+    <div class="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      <div class="reveal shell"><div class="core h-full p-6"><h3 class="font-display font-semibold mb-1.5">Multi-floor offices</h3><p class="text-[13px] text-mist/55 leading-relaxed">A camera per zone (Lobby, Floor 2, Lab) maps to an Area; presence is tracked per area with fair hours.</p></div></div>
+      <div class="reveal shell" data-delay="1"><div class="core h-full p-6"><h3 class="font-display font-semibold mb-1.5">Factories & warehouses</h3><p class="text-[13px] text-mist/55 leading-relaxed">Hands-free, hygienic, contactless punching at gates and lines — works offline if the link drops.</p></div></div>
+      <div class="reveal shell" data-delay="2"><div class="core h-full p-6"><h3 class="font-display font-semibold mb-1.5">Hospitality & retail</h3><p class="text-[13px] text-mist/55 leading-relaxed">Staff attendance on existing CCTV; no kiosks to queue at, no badges to lose mid-shift.</p></div></div>
+      <div class="reveal shell" data-delay="1"><div class="core h-full p-6"><h3 class="font-display font-semibold mb-1.5">Multi-site enterprises</h3><p class="text-[13px] text-mist/55 leading-relaxed">Each location runs its own edge fleet against one central Frappe server — no refactor to scale out.</p></div></div>
+      <div class="reveal shell" data-delay="2"><div class="core h-full p-6"><h3 class="font-display font-semibold mb-1.5">Privacy-sensitive sectors</h3><p class="text-[13px] text-mist/55 leading-relaxed">Healthcare, BFSI & government: data never leaves your servers; only irreversible embeddings are stored.</p></div></div>
+      <div class="reveal shell" data-delay="3"><div class="core h-full p-6"><h3 class="font-display font-semibold mb-1.5">Contractor-heavy sites</h3><p class="text-[13px] text-mist/55 leading-relaxed">Zero-touch self-enrollment onboards a rotating workforce in minutes, behind HR approval.</p></div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── WHY US ───────────────────────── -->
+<section class="relative z-10 px-5 py-24">
+  <div class="mx-auto max-w-6xl">
+    <div class="reveal shell"><div class="core p-8 sm:p-12">
+      <div class="grid lg:grid-cols-2 gap-10 items-center">
+        <div>
+          <div class="eyebrow mb-4">The wedge</div>
+          <h2 class="font-display text-[clamp(1.8rem,3.6vw,2.6rem)] leading-tight font-semibold tracking-tight">Open IP cameras. Your servers. Native HRMS.</h2>
+          <p class="mt-5 text-[15px] text-mist/55 leading-relaxed">Cloud SaaS can't run on-prem. Hardware vendors lock you to proprietary terminals. FaceCore sits in the uncrowded middle — commodity IP cameras feeding a self-hosted Frappe server you fully own.</p>
+        </div>
+        <div class="space-y-3">
+          <div class="flex items-start gap-3 rounded-xl hairline bg-white/[0.02] p-4"><span class="tick mt-0.5">✓</span><div><div class="text-[14px] font-medium text-white">No proprietary terminals</div><div class="text-[13px] text-mist/50">Reuse the cameras you already have — RTSP / ONVIF, Hikvision, Dahua.</div></div></div>
+          <div class="flex items-start gap-3 rounded-xl hairline bg-white/[0.02] p-4"><span class="tick mt-0.5">✓</span><div><div class="text-[14px] font-medium text-white">No per-seat SaaS billing</div><div class="text-[13px] text-mist/50">Self-hosted. Your data, your infrastructure, your cost curve.</div></div></div>
+          <div class="flex items-start gap-3 rounded-xl hairline bg-white/[0.02] p-4"><span class="tick mt-0.5">✓</span><div><div class="text-[14px] font-medium text-white">Fairness competitors skip</div><div class="text-[13px] text-mist/50">Presence-sessions + cross-camera cooldown — not brittle IN/OUT flips.</div></div></div>
+          <div class="flex items-start gap-3 rounded-xl hairline bg-white/[0.02] p-4"><span class="tick mt-0.5">✓</span><div><div class="text-[14px] font-medium text-white">Built into Frappe HRMS</div><div class="text-[13px] text-mist/50">Native shift auto-attendance — no parallel pipeline to reconcile.</div></div></div>
+        </div>
+      </div>
+    </div></div>
+  </div>
+</section>
+
+<!-- ───────────────────────── INSTALL ───────────────────────── -->
+<section id="install" class="relative z-10 px-5 py-24">
+  <div class="mx-auto max-w-6xl">
+    <div class="reveal max-w-2xl mb-12">
+      <div class="eyebrow mb-4">Deploy</div>
+      <h2 class="font-display text-[clamp(2rem,4.5vw,3.2rem)] leading-[1.05] font-semibold tracking-tight">Two repos. A handful of commands.</h2>
+      <p class="mt-5 text-[15px] text-mist/55 leading-relaxed">The Frappe app and the AI stack blend over a single authenticated HTTP seam — no code merge.</p>
+    </div>
+
+    <div class="grid lg:grid-cols-2 gap-4">
+      <!-- frappe side -->
+      <div class="reveal shell"><div class="core h-full p-7">
+        <div class="flex items-center gap-2 mb-4"><span class="grid h-7 w-7 place-items-center rounded-lg bg-emerald-glow/15 text-emerald-glow font-mono text-[12px]">1</span><h3 class="font-display text-lg font-semibold">Frappe app — the system of record</h3></div>
+        <div class="rounded-xl bg-black/50 hairline p-4 font-mono text-[12px] leading-relaxed text-mist/75 overflow-x-auto">
+<span class="text-mist/35"># in your bench</span><br>bench get-app <span class="text-emerald-glow">TechbirdIT/tb_face_attendance</span><br>bench --site <span class="text-violet-glow">your.site</span> install-app tb_face_attendance<br>bench --site <span class="text-violet-glow">your.site</span> migrate
+        </div>
+        <p class="text-[12.5px] text-mist/45 mt-3">Brings the DocTypes, approval workflow, sync/event APIs and the <span class="font-mono">/face</span> portal.</p>
+      </div></div>
+
+      <!-- ai side -->
+      <div class="reveal shell" data-delay="1"><div class="core h-full p-7">
+        <div class="flex items-center gap-2 mb-4"><span class="grid h-7 w-7 place-items-center rounded-lg bg-emerald-glow/15 text-emerald-glow font-mono text-[12px]">2</span><h3 class="font-display text-lg font-semibold">AI stack — the edge engine</h3></div>
+        <div class="rounded-xl bg-black/50 hairline p-4 font-mono text-[12px] leading-relaxed text-mist/75 overflow-x-auto">
+git clone --recurse-submodules <span class="text-emerald-glow">TechbirdIT/tb-facecore</span><br>cd tb-facecore<br>./install.sh        <span class="text-mist/35"># venv + models + .env secret</span><br>make run            <span class="text-mist/35"># ai_service on :8080</span>
+        </div>
+        <p class="text-[12.5px] text-mist/45 mt-3">Prints a generated <span class="font-mono">AI_SERVICE_SECRET</span> to paste into Frappe.</p>
+      </div></div>
+
+      <!-- wire -->
+      <div class="reveal shell" data-delay="1"><div class="core h-full p-7">
+        <div class="flex items-center gap-2 mb-4"><span class="grid h-7 w-7 place-items-center rounded-lg bg-emerald-glow/15 text-emerald-glow font-mono text-[12px]">3</span><h3 class="font-display text-lg font-semibold">Wire the seam</h3></div>
+        <p class="text-[13px] text-mist/55 leading-relaxed mb-3">In <span class="text-mist/85">Face Recognition Settings</span> set:</p>
+        <div class="space-y-2 font-mono text-[12px]">
+          <div class="rounded-lg hairline bg-black/40 px-3 py-2.5 flex justify-between gap-3"><span class="text-mist/50">Embedding Service URL</span><span class="text-emerald-glow">http://localhost:8080</span></div>
+          <div class="rounded-lg hairline bg-black/40 px-3 py-2.5 flex justify-between gap-3"><span class="text-mist/50">Embedding Service Secret</span><span class="text-violet-glow">= AI_SERVICE_SECRET</span></div>
+        </div>
+        <p class="text-[12.5px] text-mist/45 mt-3">The app sends it as an <span class="font-mono">X-Secret</span> header to <span class="font-mono">/embed</span>.</p>
+      </div></div>
+
+      <!-- enroll + edge -->
+      <div class="reveal shell" data-delay="2"><div class="core h-full p-7">
+        <div class="flex items-center gap-2 mb-4"><span class="grid h-7 w-7 place-items-center rounded-lg bg-emerald-glow/15 text-emerald-glow font-mono text-[12px]">4</span><h3 class="font-display text-lg font-semibold">Enroll & register a camera</h3></div>
+        <ul class="space-y-2.5 text-[13px] text-mist/55">
+          <li class="flex gap-2.5"><span class="tick">›</span> Give each Employee a unique <span class="font-mono text-mist/80">Attendance Device ID</span>.</li>
+          <li class="flex gap-2.5"><span class="tick">›</span> Employee registers a face at <span class="font-mono text-mist/80">/face</span> → HR approves it.</li>
+          <li class="flex gap-2.5"><span class="tick">›</span> Create a <span class="font-mono text-mist/80">Face Edge Device</span> user (least-privilege role) + API key.</li>
+          <li class="flex gap-2.5"><span class="tick">›</span> Point <span class="font-mono text-mist/80">edge_client/config.yaml</span> at the camera & device — done.</li>
+        </ul>
+        <p class="text-[12.5px] text-mist/45 mt-3">Optional analytics: <span class="font-mono">./install.sh --with-sidecar</span> brings up the DeepFace stack.</p>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── ROADMAP ───────────────────────── -->
+<section id="roadmap" class="relative z-10 px-5 py-24">
+  <div class="mx-auto max-w-6xl">
+    <div class="reveal max-w-2xl mb-12">
+      <div class="eyebrow mb-4" style="color:#a99bff">On the horizon</div>
+      <h2 class="font-display text-[clamp(2rem,4.5vw,3.2rem)] leading-[1.05] font-semibold tracking-tight">Coming soon.</h2>
+      <p class="mt-5 text-[15px] text-mist/55 leading-relaxed">A roadmap drawn straight from the engineering backlog — proposed, scoped, and in flight.</p>
+    </div>
+
+    <div class="grid md:grid-cols-2 gap-4">
+      <div class="reveal shell"><div class="core h-full p-7">
+        <span class="text-[10px] font-mono soon uppercase tracking-widest">Recognition at scale</span>
+        <h3 class="font-display text-lg font-semibold mt-2 mb-2">Vector search & open-space ID</h3>
+        <p class="text-[13.5px] text-mist/55 leading-relaxed"><span class="font-mono text-mist/75">/register</span> + <span class="font-mono text-mist/75">/search</span> over a Weaviate index for VIP and open-space recognition beyond fixed enrollment — plus multi-frame confirmation before posting for accuracy across large camera fleets.</p>
+      </div></div>
+      <div class="reveal shell" data-delay="1"><div class="core h-full p-7">
+        <span class="text-[10px] font-mono soon uppercase tracking-widest">Live operations</span>
+        <h3 class="font-display text-lg font-semibold mt-2 mb-2">Real-time Edge Console</h3>
+        <p class="text-[13.5px] text-mist/55 leading-relaxed">A multi-camera live HLS grid with real recognition events and a control API to start/stop engines and edit device config remotely — operations from one screen.</p>
+      </div></div>
+      <div class="reveal shell" data-delay="1"><div class="core h-full p-7">
+        <span class="text-[10px] font-mono soon uppercase tracking-widest">Tracking</span>
+        <h3 class="font-display text-lg font-semibold mt-2 mb-2">Zones & directional counts</h3>
+        <p class="text-[13.5px] text-mist/55 leading-relaxed">Roboflow <span class="font-mono text-mist/75">supervision</span> integration — ByteTrack stability, polygon zone gating, and line-crossing IN/OUT counts layered on the edge tracker.</p>
+      </div></div>
+      <div class="reveal shell" data-delay="2"><div class="core h-full p-7">
+        <span class="text-[10px] font-mono soon uppercase tracking-widest">HRMS depth</span>
+        <h3 class="font-display text-lg font-semibold mt-2 mb-2">Vision Tasks & payroll hours</h3>
+        <p class="text-[13.5px] text-mist/55 leading-relaxed">Frappe <span class="font-mono text-mist/75">Vision Task</span> + <span class="font-mono text-mist/75">Vision Service Settings</span> DocTypes to log every inference and configure the sidecar from Desk — and feed payroll Attendance directly from presence sessions.</p>
+      </div></div>
+      <div class="reveal shell" data-delay="1"><div class="core h-full p-7">
+        <span class="text-[10px] font-mono soon uppercase tracking-widest">Accuracy</span>
+        <h3 class="font-display text-lg font-semibold mt-2 mb-2">Adaptive & multi-shot enrollment</h3>
+        <p class="text-[13.5px] text-mist/55 leading-relaxed">Averaged, multi-shot embeddings that absorb facial changes over time — better recognition with masks, beards and accessories, without forcing re-enrollment.</p>
+      </div></div>
+      <div class="reveal shell" data-delay="2"><div class="core h-full p-7">
+        <span class="text-[10px] font-mono soon uppercase tracking-widest">Performance & security</span>
+        <h3 class="font-display text-lg font-semibold mt-2 mb-2">GPU edge & hardened hops</h3>
+        <p class="text-[13.5px] text-mist/55 leading-relaxed">A one-flag CUDA switch for production edges, plus authenticating the <span class="font-mono text-mist/75">ai_service → DeepFace</span> hop end-to-end.</p>
+      </div></div>
+    </div>
+  </div>
+</section>
+
+<!-- ───────────────────────── CTA / FOOTER ───────────────────────── -->
+<section class="relative z-10 px-5 py-24">
+  <div class="mx-auto max-w-5xl">
+    <div class="reveal shell"><div class="core p-10 sm:p-16 text-center relative overflow-hidden">
+      <div class="absolute -top-24 left-1/2 -translate-x-1/2 h-64 w-64 rounded-full bg-emerald-glow/20 blur-[100px] pointer-events-none"></div>
+      <div class="eyebrow mb-5">Ready when you are</div>
+      <h2 class="font-display text-[clamp(2rem,5vw,3.4rem)] leading-[1.02] font-semibold tracking-tight">Put a face to every<br><span class="grad">check-in.</span></h2>
+      <p class="mt-6 max-w-xl mx-auto text-[15px] text-mist/55 leading-relaxed">A self-hosted, privacy-first attendance platform that runs on the cameras you already own and the HRMS you already trust.</p>
+      <div class="mt-9 flex flex-wrap items-center justify-center gap-3">
+        <a href="#install" class="cta group flex items-center gap-2 rounded-full bg-white pl-5 pr-1.5 py-2 text-ink text-[14px] font-semibold">
+          Start a deployment
+          <span class="knob grid h-8 w-8 place-items-center rounded-full bg-ink/10"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M5 12h14M13 6l6 6-6 6"/></svg></span>
+        </a>
+        <a href="#top" class="cta rounded-full hairline bg-white/5 px-5 py-2.5 text-[14px] text-mist/80 hover:bg-white/10">Back to top</a>
+      </div>
+    </div></div>
+
+    <footer class="mt-12 flex flex-col sm:flex-row items-center justify-between gap-4 text-[12px] text-mist/35">
+      <div class="flex items-center gap-2.5">
+        <span class="grid h-6 w-6 place-items-center rounded-md bg-gradient-to-br from-emerald-glow to-[#13b07d] text-ink"><svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="12" cy="11" r="2.4"/><path d="M8.5 16c.7-1.6 2-2.4 3.5-2.4s2.8.8 3.5 2.4M4 8V5a1 1 0 0 1 1-1h3M16 4h3a1 1 0 0 1 1 1v3M20 16v3a1 1 0 0 1-1 1h-3M8 20H5a1 1 0 0 1-1-1v-3"/></svg></span>
+        <span class="font-display font-semibold text-mist/60">FaceCore</span><span class="font-mono">· Techbird IT</span>
+      </div>
+      <div class="font-mono">tb-facecore · tb_face_attendance · Frappe HRMS v16</div>
+    </footer>
+  </div>
+</section>
+
+<script>
+  // ── scroll reveals ──
+  const io = new IntersectionObserver((entries) => {
+    entries.forEach((e) => { if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); } });
+  }, { threshold: 0.12, rootMargin: '0px 0px -8% 0px' });
+  document.querySelectorAll('.reveal').forEach((el) => io.observe(el));
+
+  // ── animated flow stepper ──
+  const steps = Array.from(document.querySelectorAll('#flowGrid .flow-step'));
+  const ribbonEl = document.getElementById('ribbon');
+  const lines = [
+    'POST /embed  X-Secret:****  →  { embedding:[512], det:0.91 }',
+    'workflow: Draft → Pending → Approved ✓',
+    'GET get_face_data?since=…  →  142 approved embeddings synced',
+    'edge match cosine=0.87  liveness=0.94  track#7  ✓ live',
+    'POST post_event  →  Employee Checkin HR-EMP-00001 @ 09:01:14',
+  ];
+  let s = 0;
+  function cycle() {
+    steps.forEach((el, i) => el.classList.toggle('active', i === s));
+    if (ribbonEl) ribbonEl.textContent = lines[s];
+    s = (s + 1) % steps.length;
+  }
+  cycle();
+  let flowTimer = setInterval(cycle, 2600);
+  // pause when tab hidden (perf)
+  document.addEventListener('visibilitychange', () => {
+    clearInterval(flowTimer);
+    if (!document.hidden) flowTimer = setInterval(cycle, 2600);
+  });
+
+  // ── hero video player ──
+  const vid = document.getElementById('heroVid');
+  const playBtn = document.getElementById('playBtn');
+  if (vid && playBtn) {
+    const start = () => { vid.muted = false; vid.controls = true; vid.play(); playBtn.style.opacity = '0'; playBtn.style.pointerEvents = 'none'; };
+    playBtn.addEventListener('click', start);
+    vid.addEventListener('pause', () => { if (!vid.ended) return; playBtn.style.opacity = '1'; playBtn.style.pointerEvents = 'auto'; });
+    // autoplay a muted loop preview once it scrolls into view; the button starts it "for real"
+    const vio = new IntersectionObserver((es) => es.forEach((e) => {
+      if (e.isIntersecting && vid.paused && !vid.controls) vid.play().catch(() => {});
+      else if (!e.isIntersecting && !vid.controls) vid.pause();
+    }), { threshold: 0.4 });
+    vio.observe(vid);
+  }
+</script>
+</body>
+</html>

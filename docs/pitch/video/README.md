@@ -40,24 +40,23 @@ npx remotion render FaceCore out/facecore.mp4  --codec=h264 --crf=18   # higher 
 - **Fonts** — Space Grotesk (display), Plus Jakarta Sans (body), JetBrains Mono — via
   `@remotion/google-fonts` (closest Google-hosted match to the deck's Clash Display).
 
-## Narration
-The video ships **with voiceover by default** — one clip per scene in `public/vo/scene_*.mp3`,
-placed at each scene's start in `src/FaceCore.tsx`. The clips were synthesized locally with the
-macOS `say` engine (voice: Samantha) from [`voiceover-script.md`](voiceover-script.md), then
-encoded to MP3 with ffmpeg. Scene durations in the `D` map are paced to match the clip lengths.
+## Background music
+The video ships with an **original ambient music bed** — `public/music.mp3`, wired once at the
+top level of `<FaceCore>` via `<Audio src={staticFile("music.mp3")} volume={0.85} />`. It's an
+Am → F → C → G chord-progression pad, synthesized locally with `ffmpeg` (sine voices + gentle
+tremolo + reverb), so there are **no licensing concerns and no external assets**.
 
-Regenerate the voiceover (e.g. to swap voices or edit copy):
+Regenerate or restyle the track (e.g. different chords / brighter tone):
 ```bash
-# edit the lines, then re-synthesize a scene:
-say -v Samantha -r 172 -o public/vo/scene_3.aiff "your new line…"
-ffmpeg -y -i public/vo/scene_3.aiff -ar 44100 -ac 1 -b:a 128k public/vo/scene_3.mp3
-rm public/vo/scene_3.aiff
-# if a clip gets longer than its scene, bump that scene in the `D` map, then `npm run render`.
+# 4 chords crossfaded into a ~73s pad — see the recipe in git history / below
+ffmpeg -f lavfi -i "sine=f=130.81:d=21" ... amix ... acrossfade ... aecho ... → public/music.mp3
 ```
-To use a higher-quality voice (ElevenLabs / Azure / a human read), just replace the
-`public/vo/scene_*.mp3` files — keep the same filenames and the wiring is unchanged.
-For background music, add another `<Audio src={staticFile("music.mp3")} volume={0.15} />`
-at the top level of `<FaceCore>`.
+To use a real licensed track instead, just drop your file at `public/music.mp3` (keep the name)
+and re-render. Adjust loudness with the `volume` prop on the `<Audio>` tag.
+
+> **Optional voiceover** is also supported — see [`voiceover-script.md`](voiceover-script.md) for a
+> timed script. It's disabled by default (the robotic TTS read was dropped in favour of music);
+> drop per-scene clips in `public/vo/` and add `<Audio>` sequences to re-enable.
 
 > `node_modules/` and `out/` are gitignored — only the source is version-controlled.
 > Re-render locally to regenerate `out/facecore.mp4`.

@@ -26,13 +26,12 @@ const EMERALD = "#34e0a1";
 const VIOLET = "#a99bff";
 
 // ── scene timing (30fps) ──
-// scene durations are paced to the voiceover clips in public/vo (see voiceover-script.md)
 const D = {
   intro: 120,
   problem: 240,
   flow: 810,
-  arch: 440,
-  features: 460,
+  arch: 360,
+  features: 360,
   outro: 300,
 };
 const OFF = {
@@ -391,13 +390,8 @@ export const FaceCore: React.FC = () => {
       <Sequence from={OFF.features} durationInFrames={D.features}><Features /></Sequence>
       <Sequence from={OFF.outro} durationInFrames={D.outro}><Outro /></Sequence>
 
-      {/* ── Voiceover (Samantha TTS) — one clip per scene, placed at the scene's start ── */}
-      <Sequence from={OFF.intro}><Audio src={staticFile("vo/scene_1.mp3")} /></Sequence>
-      <Sequence from={OFF.problem}><Audio src={staticFile("vo/scene_2.mp3")} /></Sequence>
-      <Sequence from={OFF.flow}><Audio src={staticFile("vo/scene_3.mp3")} /></Sequence>
-      <Sequence from={OFF.arch}><Audio src={staticFile("vo/scene_4.mp3")} /></Sequence>
-      <Sequence from={OFF.features}><Audio src={staticFile("vo/scene_5.mp3")} /></Sequence>
-      <Sequence from={OFF.outro}><Audio src={staticFile("vo/scene_6.mp3")} /></Sequence>
+      {/* ── Background music: an ambient Am→F→C→G pad (see README "Background music") ── */}
+      <Audio src={staticFile("music.mp3")} volume={0.85} />
     </AbsoluteFill>
   );
 };

@@ -14,6 +14,11 @@ the engineering backlog in `SESSION-STATUS.md`).
 - **Dual-engine architecture** — Frappe · `ai_service` (`/embed`) · `edge_client` · DeepFace sidecar (`/analyze`)
 - **Use cases**, the competitive wedge, **installation runbook**, and the **roadmap (coming soon)**
 
+## Explainer video
+A ~72s motion-graphics version of this deck (Remotion → MP4) lives in [`video/`](video/).
+Run `npm install && npm run render` there to produce `video/out/facecore.mp4` (1080p, 30fps).
+The rendered MP4 is gitignored — re-render locally.
+
 ## Viewing it
 It's a static file — no build step, no network dependency beyond CDN fonts/Tailwind.
 

@@ -380,6 +380,9 @@ const Outro: React.FC = () => {
 export const FaceCore: React.FC = () => {
   return (
     <AbsoluteFill style={{ background: INK, fontFamily: BODY }}>
+      {/* VOICEOVER: add video/public/voiceover.mp3 (see voiceover-script.md), then uncomment:
+          <Audio src={staticFile("voiceover.mp3")} />
+          and add `Audio, staticFile` to the "remotion" import above. */}
       <Background />
       <Sequence from={OFF.intro} durationInFrames={D.intro}><Intro /></Sequence>
       <Sequence from={OFF.problem} durationInFrames={D.problem}><Problem /></Sequence>

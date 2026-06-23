@@ -409,21 +409,29 @@ function NumField({label, hint, step, value, onChange}){
 function ConfigView({cfg, setCfg, onSave}){
   const set=(path,val)=>{ const c=structuredClone(cfg); let o=c; const ks=path.split("."); for(let i=0;i<ks.length-1;i++)o=o[ks[i]]; o[ks[ks.length-1]]=val; setCfg(c); };
   const setCam=(i,k,v)=>{ const c=structuredClone(cfg); c.cameras[i][k]=v; setCfg(c); };
-  const addCam=()=>{ const c=structuredClone(cfg); const n=c.cameras.length+1; c.cameras.push({id:"edge-"+String(n).padStart(3,"0"),source:"rtsp://",area:"",preview:""}); setCfg(c); };
+  const addCam=()=>{ const c=structuredClone(cfg); const n=c.cameras.length+1; c.cameras.push({id:"edge-"+String(n).padStart(3,"0"),source:"rtsp://",area:"",preview:"",enabled:true}); setCfg(c); };
+  const enabledCount = cfg.cameras.filter(c=>c.enabled!==false).length;
   const delCam=i=>{ const c=structuredClone(cfg); c.cameras.splice(i,1); setCfg(c); };
   const grid3 = {display:"grid",gridTemplateColumns:"repeat(auto-fit,minmax(200px,1fr))",gap:14};
   return (
     <div style={{maxWidth:960,margin:"0 auto"}}>
       <Section tag="A" title="Camera nodes">
         <p style={{margin:"0 0 16px",fontSize:11.5,lineHeight:1.6,color:"rgba(110,150,190,0.7)"}}>
-          One row per camera on this machine — they share the loaded face models. Each ID must match a Face Edge Device in Frappe. Preview URL: <b style={{color:"rgba(0,255,150,0.8)"}}>.mjpg</b> = engine boxes · <b style={{color:"rgba(0,200,255,0.8)"}}>.m3u8</b> = raw video · blank = demo.</p>
+          One row per camera on this machine — they share the loaded face models. Each ID must match a Face Edge Device in Frappe. Toggle <b style={{color:"rgba(120,255,200,0.9)"}}>ON/OFF</b> to control which cameras the engine runs — disabled nodes stay configured but don't stream, so you keep cloud cameras under the concurrent-stream limit. <b style={{color:cfg.cameras.length&&enabledCount>4?"rgba(255,180,90,0.95)":"rgba(120,255,200,0.9)"}}>{enabledCount} of {cfg.cameras.length} enabled</b>{enabledCount>4?" — cloud feeds get flaky above ~4 concurrent.":""}</p>
         <div style={{display:"grid",gap:12}}>
           {cfg.cameras.map((cam,i)=>(
             <div key={i} style={{display:"grid",gap:8,padding:12,borderRadius:12,border:"1px solid rgba(0,150,255,0.14)",background:"rgba(0,12,28,0.5)"}}>
-              <div style={{display:"grid",gridTemplateColumns:"150px 1fr 150px 40px",gap:9,alignItems:"center"}}>
+              <div style={{display:"grid",gridTemplateColumns:"140px 1fr 120px 60px 40px",gap:9,alignItems:"center"}}>
                 <input className="hin" value={cam.id} onChange={e=>setCam(i,"id",e.target.value)} placeholder="edge-001"/>
                 <input className="hin" value={cam.source} onChange={e=>setCam(i,"source",e.target.value)} placeholder="rtsp://… or 0"/>
                 <input className="hin" value={cam.area} onChange={e=>setCam(i,"area",e.target.value)} placeholder="Area"/>
+                <button onClick={()=>setCam(i,"enabled",cam.enabled===false)}
+                  title="Toggle this camera on/off — the engine runs only ENABLED cameras (use it to stay under the cloud's concurrent-stream limit). Save to apply."
+                  style={{height:38,borderRadius:9,cursor:"pointer",fontFamily:"inherit",fontSize:10.5,fontWeight:700,letterSpacing:1,
+                    border:"1px solid "+(cam.enabled!==false?"rgba(0,255,150,0.45)":"rgba(120,140,160,0.25)"),
+                    background:cam.enabled!==false?"rgba(0,50,28,0.55)":"rgba(18,26,36,0.5)",
+                    color:cam.enabled!==false?"rgba(120,255,200,0.95)":"rgba(135,155,175,0.7)"}}>
+                  {cam.enabled!==false?"ON":"OFF"}</button>
                 <button className="hdel" onClick={()=>delCam(i)} title="Remove node" style={{width:40,height:38,display:"grid",
                   placeContent:"center",borderRadius:9,border:"1px solid rgba(255,70,90,0.25)",background:"rgba(40,8,14,0.4)",
                   color:"rgba(255,110,125,0.9)",cursor:"pointer",fontFamily:"inherit",fontSize:13,transition:"all .2s"}}>✕</button>
@@ -512,8 +520,18 @@ function App(){
   // engine, status is polled). If not (opened via a plain static server) →
   // simulation mode, exactly as before.
   useEffect(()=>{ let alive=true;
-    api("/api/status").then(st=>{ if(alive) setControl({available:true,status:st}); })
-      .catch(()=>{ if(alive) setControl({available:false}); });
+    api("/api/status").then(st=>{ if(!alive) return;
+      setControl({available:true,status:st});
+      // Load the engine's actual cameras (from config.yaml) into the form so
+      // every configured node — including disabled ones — is listed and
+      // toggleable, instead of the local demo defaults.
+      if(st.cameras && st.cameras.length){
+        setCfg(c=>({...c, cameras: st.cameras.map(cam=>{
+          const ex=(c.cameras||[]).find(x=>x.id===cam.id)||{};
+          return {id:cam.id, source:cam.source, area:ex.area||"", preview:ex.preview||"", enabled: cam.enabled!==false};
+        })}));
+      }
+    }).catch(()=>{ if(alive) setControl({available:false}); });
     return ()=>{alive=false;}; },[]);
 
   const controlMode = !!(control && control.available);
@@ -594,7 +612,8 @@ function App(){
   // In control mode the live grid reflects the cameras the engine actually runs
   // (from config.yaml), enriched with area names from the local config by id.
   const engineCams = (controlMode && control.status)
-    ? ((control.status.cameras)||[]).map(c=>({id:c.id, area:areaOf(c.id), source:c.source, preview:""}))
+    ? ((control.status.cameras)||[]).filter(c=>c.enabled!==false)
+        .map(c=>({id:c.id, area:areaOf(c.id), source:c.source, preview:""}))
     : [];
   const displayEvents = controlMode
     ? ((control.status&&control.status.events)||[]).map((ev,i)=>({key:(ev.time||"")+ev.cam+i,name:ev.name,cam:ev.cam,area:areaOf(ev.cam),time:ev.time,score:ev.score,liveness:ev.liveness,age:ev.age,gender:ev.gender}))

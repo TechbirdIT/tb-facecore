@@ -166,10 +166,20 @@ def apply_console_config(config_path: Path, body: dict, engine: Engine) -> str:
     cams = [c for c in (body.get("cameras") or []) if c.get("id") and c.get("source")]
     if cams:
         edge["cameras"] = [
-            {"id": c["id"], "source": _coerce_source(c["source"])} for c in cams
+            {
+                "id": c["id"],
+                "source": _coerce_source(c["source"]),
+                # per-camera on/off switch; default on. Disabled nodes stay in
+                # config but the engine won't run them (concurrency management).
+                "enabled": c.get("enabled", True) is not False,
+            }
+            for c in cams
         ]
-        edge["id"] = cams[0]["id"]
-        edge["camera_source"] = _coerce_source(cams[0]["source"])
+        # The single id/camera_source fallbacks point at the first ENABLED node
+        # so a standalone read still lands on a camera that actually runs.
+        first = next((c for c in cams if c.get("enabled", True) is not False), cams[0])
+        edge["id"] = first["id"]
+        edge["camera_source"] = _coerce_source(first["source"])
 
     rt = body.get("rtsp") or {}
     if "rtsp_transport" in rt:

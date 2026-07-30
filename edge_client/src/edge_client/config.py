@@ -39,9 +39,15 @@ class EdgeConfig:
     acquire_fast_seconds: float = 2.0
     acquire_backoff_seconds: float = 1.0
     # Multi-camera: when set, this process runs one capture loop per camera,
-    # sharing the loaded face models. Each entry is (camera_id, source). When
-    # None, the single edge_id + camera_source above is used.
+    # sharing the loaded face models. ``cameras`` holds only the ENABLED ones as
+    # (camera_id, source) — that's what the engine actually runs. When None, the
+    # single edge_id + camera_source above is used.
     cameras: tuple | None = None
+    # Every configured camera as (camera_id, source, enabled), including disabled
+    # ones — so the console can list all nodes with their on/off state while the
+    # engine only spins up the enabled subset (a per-camera switch to stay under
+    # the cloud's concurrent-stream limit). None when no `cameras` list is used.
+    camera_specs: tuple | None = None
     # How often a present employee is recorded as a sighting (presence sampling).
     # Server-side punch_debounce gates HR check-ins, so this can be fine.
     sighting_interval_seconds: float = 60.0
@@ -58,6 +64,17 @@ class EdgeConfig:
     # default; the operator console enables it so the live boxes show age/gender.
     # Emotion/race are NOT here — they run offline via /api/demography.
     analyze_demographics: bool = False
+    # Hik-Connect for Teams cloud streaming (optional). Credentials for resolving
+    # `hcc://…` camera sources — cameras reachable only through the Hik-Connect
+    # cloud, with no LAN/VPN/port-forward. Secrets, so keep them in config.yaml
+    # (gitignored), never in the camera source string. device_codes maps a device
+    # serial -> its stream-encryption verification code (only for encrypted
+    # devices). Stored as a tuple of (serial, code) pairs so the config stays
+    # hashable/frozen.
+    hcc_app_key: str | None = None
+    hcc_app_secret: str | None = None
+    hcc_host: str = "https://iind.hikcentralconnect.com"
+    hcc_device_codes: tuple | None = None
 
 
 def _resolve_edge_id(edge: dict, cameras: tuple | None) -> str:
@@ -84,17 +101,40 @@ def load_config(path: str) -> EdgeConfig:
         raw = yaml.safe_load(f)
     edge = raw["edge"]
     raw_cams = edge.get("cameras")
-    cameras = (
-        tuple((c["id"], c["source"]) for c in raw_cams) if raw_cams else None
-    )
+    if raw_cams:
+        # `enabled` defaults to True; only `enabled: false` turns a node off.
+        camera_specs = tuple(
+            (c["id"], c["source"], c.get("enabled", True) is not False)
+            for c in raw_cams
+        )
+        cameras = tuple((cid, src) for cid, src, en in camera_specs if en)
+    else:
+        camera_specs = None
+        cameras = None
+    hcc = raw.get("hcc", {}) or {}
+    raw_codes = hcc.get("device_codes") or {}
+    hcc_device_codes = tuple(raw_codes.items()) if raw_codes else None
+    # Fail loudly at load if any camera needs the cloud but creds are missing,
+    # rather than silently producing a camera that never yields a frame. Checks
+    # every configured source (incl. disabled) so enabling one later can't
+    # surprise you with missing creds.
+    all_sources = [s for _id, s, _en in (camera_specs or ())]
+    all_sources.append(edge.get("camera_source"))
+    if any(isinstance(s, str) and s.startswith("hcc://") for s in all_sources):
+        if not (hcc.get("app_key") and hcc.get("app_secret")):
+            raise ValueError(
+                "an hcc:// camera source is configured but hcc.app_key / "
+                "hcc.app_secret are missing — add an `hcc:` block to the config"
+            )
     return EdgeConfig(
         frappe_url=raw["frappe"]["url"],
         site=raw["frappe"]["site"],
         api_key=raw["frappe"]["api_key"],
         api_secret=raw["frappe"]["api_secret"],
-        edge_id=_resolve_edge_id(edge, cameras),
-        camera_source=_resolve_camera_source(edge, cameras),
+        edge_id=_resolve_edge_id(edge, cameras or camera_specs),
+        camera_source=_resolve_camera_source(edge, cameras or camera_specs),
         cameras=cameras,
+        camera_specs=camera_specs,
         sync_interval=raw["edge"]["sync_interval"],
         threshold=raw["matching"]["threshold"],
         liveness_threshold=raw["matching"]["liveness_threshold"],
@@ -119,4 +159,8 @@ def load_config(path: str) -> EdgeConfig:
         acquire_backoff_seconds=raw.get("tracking", {}).get(
             "acquire_backoff_seconds", 1.0
         ),
+        hcc_app_key=hcc.get("app_key"),
+        hcc_app_secret=hcc.get("app_secret"),
+        hcc_host=hcc.get("host", "https://iind.hikcentralconnect.com"),
+        hcc_device_codes=hcc_device_codes,
     )

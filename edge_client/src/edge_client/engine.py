@@ -62,13 +62,28 @@ class Engine:
     def status(self) -> dict:
         with self._lock:
             state, error = self._state, self._error
+        # Report ALL configured nodes (incl. disabled) with their on/off state,
+        # so the console can show every camera and toggle it; only enabled +
+        # running ones can be "live".
+        specs = getattr(self.cfg, "camera_specs", None)
+        if specs is not None:
+            rows = [(cid, src, en) for cid, src, en in specs]
+        else:
+            rows = [(cid, src, True) for cid, src in self._cameras]
         cams = []
-        for cam_id, source in self._cameras:
+        for cam_id, source, enabled in rows:
             fresh = self.hub.freshness(cam_id)
+            live = (
+                enabled
+                and state == "running"
+                and fresh is not None
+                and fresh < _LIVE_WINDOW_S
+            )
             cams.append({
                 "id": cam_id,
                 "source": _mask(source),
-                "live": state == "running" and fresh is not None and fresh < _LIVE_WINDOW_S,
+                "enabled": enabled,
+                "live": live,
                 "last_frame_s": round(fresh, 2) if fresh is not None else None,
             })
         with self._events_lock:

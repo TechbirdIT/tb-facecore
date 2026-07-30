@@ -14,6 +14,13 @@ edge:
   #   Dahua / CP Plus:    "rtsp://user:pass@<ip>:554/cam/realmonitor?channel=1&subtype=1"
   #   S.vision:           "rtsp://<ip>/ch1_0.264"
   # Use the camera's SUB-stream (lower resolution) — detection doesn't need 4MP.
+  #
+  # Hik-Connect CLOUD camera (no LAN / VPN / port-forward — pulls over the
+  # internet via the Hik-Connect for Teams OpenAPI). Put creds in the `hcc:`
+  # block below, NOT in the source:
+  #   camera_source: "hcc://<deviceSerial>/<resourceId>?stream=sub&protocol=hls"
+  # <resourceId> is the camera's *logical* resource id (from the Hik-Connect web
+  # client's logicalresource/element/camera/<id> request), NOT the channel id.
   camera_source: 0
   sync_interval: 300  # seconds; how often to pull embeddings from Frappe
   sighting_interval_seconds: 60  # how often a present employee is recorded (presence
@@ -45,6 +52,21 @@ edge:
   # the knobs above are ignored. Use if your FFmpeg build spells the socket
   # timeout 'timeout' instead of 'stimeout':
   # ffmpeg_capture_options: "rtsp_transport;tcp|fflags;nobuffer|timeout;10000000"
+
+# --- Hik-Connect for Teams cloud streaming (optional) ---
+# Only needed when a camera_source / cameras[].source is an `hcc://…` URL.
+# These are SECRETS (the API key grants Super-User-level access to the team) —
+# this file is gitignored; rotate the key in Hik-Connect → Team Management →
+# API Integration if it leaks. host defaults to the India gateway.
+# device_codes maps a device serial -> its stream-encryption verification code,
+# and is ONLY needed for devices that have stream encryption ON (a device with
+# encryption OFF needs no code).
+# hcc:
+#   app_key: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+#   app_secret: "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
+#   host: "https://iind.hikcentralconnect.com"   # ieu/isgp/ius for other regions
+#   device_codes:
+#     FY6391441: "swami112233"
 
 matching:
   threshold: 0.45  # cosine similarity threshold [0.0, 1.0]

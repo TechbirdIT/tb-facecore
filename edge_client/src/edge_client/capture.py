@@ -111,11 +111,16 @@ def process_frame(
 
 
 def resolve_cameras(cfg) -> list[tuple[str, object]]:
-    """The (camera_id, source) pairs this process should run.
+    """The (camera_id, source) pairs this process should actually RUN.
 
-    Multi-camera: cfg.cameras is a list of (id, source). Single-camera (legacy):
-    one pair from cfg.edge_id + cfg.camera_source.
+    Only ENABLED cameras: a disabled node stays in the config (and is listed by
+    the console) but no capture loop is started for it — that's how the per-camera
+    on/off switch keeps the running set under the cloud's concurrent-stream limit.
+    Single-camera (legacy): one pair from cfg.edge_id + cfg.camera_source.
     """
+    specs = getattr(cfg, "camera_specs", None)
+    if specs is not None:
+        return [(cid, src) for cid, src, enabled in specs if enabled]
     if cfg.cameras:
         return [(cid, src) for cid, src in cfg.cameras]
     return [(cfg.edge_id, cfg.camera_source)]
@@ -135,6 +140,7 @@ def _camera_loop(cam_id, source_spec, shared, analyzer, client, store, cfg, stop
     cameras in this process — so the face models load once."""
     from dataclasses import replace
 
+    from edge_client import hcc
     from edge_client.camera import FrameSource, build_ffmpeg_options
     from edge_client.debounce import Debouncer
     from edge_client.tracker import Tracker
@@ -144,10 +150,19 @@ def _camera_loop(cam_id, source_spec, shared, analyzer, client, store, cfg, stop
         iou_threshold=cfg.track_iou_threshold, max_misses=cfg.track_max_misses
     )
     debouncer = Debouncer(_sighting_window_minutes(cfg))
-    ffmpeg_options = build_ffmpeg_options(
-        cfg.rtsp_transport, cfg.rtsp_timeout_seconds, cfg.ffmpeg_capture_options
-    )
-    source = FrameSource(source_spec, ffmpeg_options=ffmpeg_options)
+    if hcc.is_hcc_source(source_spec):
+        # Cloud camera (Hik-Connect): no LAN/RTSP. The opener resolves a fresh,
+        # short-lived HLS/RTMP URL on every (re)connect, so expiry is handled by
+        # FrameSource's existing backoff-reconnect — no rtsp ffmpeg opts apply.
+        spec = hcc.parse_hcc_source(source_spec)
+        client = hcc.HccClient(cfg.hcc_app_key, cfg.hcc_app_secret, cfg.hcc_host)
+        code = dict(cfg.hcc_device_codes or ()).get(spec.device_serial)
+        source = FrameSource(source_spec, open_fn=hcc.make_open_fn(client, spec, code))
+    else:
+        ffmpeg_options = build_ffmpeg_options(
+            cfg.rtsp_transport, cfg.rtsp_timeout_seconds, cfg.ffmpeg_capture_options
+        )
+        source = FrameSource(source_spec, ffmpeg_options=ffmpeg_options)
     source.start()
 
     preview = shared.get("preview")

@@ -68,8 +68,10 @@ tb-facecore/
 │   ├── config.example.yaml
 │   └── pyproject.toml
 ├── docs/
-│   ├── design/architecture.md  # Full architecture & design decisions
-│   └── how-to.md               # Complete setup & operations guide
+│   ├── design/architecture.md                       # Current architecture & design decisions
+│   ├── design/2026-06-17-vision-platform-architecture.md  # Target: modular multi-tenant vision platform
+│   ├── supervision-integration.md                   # Object-detection / tracking integration analysis
+│   └── how-to.md                                     # Complete setup & operations guide
 └── models/                     # Downloaded AI models (gitignored, ~310MB)
 ```
 
@@ -103,7 +105,7 @@ Then follow [docs/how-to.md](docs/how-to.md) from section 4 (models) onward.
 - All edge endpoints (`get_face_data`, `post_event`, `heartbeat`) gated to Face Edge Device and System Manager roles
 - Only **Approved** face profiles sync to devices; the raw embedding field is permlevel-restricted in Desk
 - Every recognition is audited as a **Face Recognition Event** (scores, device, linked checkin); duplicates are rejected by a unique index
-- Embeddings are one-way transforms — cannot reconstruct a face image from stored data
+- Embeddings are stored instead of raw face images — but treat them as **recoverable biometric data**, not anonymized: recent research reconstructs faces from embeddings at high fidelity ([Idiap, 2024](https://arxiv.org/abs/2411.03960)). They remain regulated biometric data: encrypt at rest and in transit, gate access (the raw embedding field is permlevel-restricted in Desk), obtain consent, and support deletion. See [docs/design/2026-06-17-vision-platform-architecture.md](docs/design/2026-06-17-vision-platform-architecture.md) §3.7.
 - Enrollment photos are stored optionally and can be deleted after embedding
 
 ## Testing
@@ -126,6 +128,15 @@ cd edge_client && pytest
 | Frappe | v16 |
 | ERPNext | v16 |
 | HRMS | v16 |
+
+## Roadmap
+
+Today this stack is purpose-built for face attendance. The proposed direction is to
+generalize `facecore` into a modular **vision platform** (camera + CCTV discovery,
+biometrics, face recognition, object detection, image analysis) with separately installable
+use-case modules (HRMS attendance, ERPNext invoice/item detection, hotel minibar detection,
+and future client use cases), delivered as multi-tenant SaaS. Full target architecture,
+phased roadmap, and risks: **[docs/design/2026-06-17-vision-platform-architecture.md](docs/design/2026-06-17-vision-platform-architecture.md)**.
 
 ## License
 
